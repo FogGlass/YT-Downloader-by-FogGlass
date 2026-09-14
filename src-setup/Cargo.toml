@@ -1,0 +1,45 @@
+[package]
+name = "yt-downloader-setup"
+version = "1.0.0"
+description = "YT Downloader installer and uninstaller"
+authors = ["YT Downloader"]
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "yt_downloader_setup_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# The payload is a self-extracting archive appended to this executable. Deflate is
+# used directly (the crate is already part of the main app's dependency tree) so the
+# container format stays simple and fully under our control.
+flate2 = "1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+] }
+
+# Same rule as the main application: without this feature Tauri compiles in dev mode
+# and the window would try to load the Vite dev server.
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "z"
+strip = true
+panic = "abort"

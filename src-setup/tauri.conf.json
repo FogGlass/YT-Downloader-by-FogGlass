@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "YT Downloader Setup",
+  "version": "1.0.0",
+  "identifier": "com.ytdownloader.setup",
+  "build": {
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "setup",
+        "url": "installer.html",
+        "title": "YT Downloader Setup",
+        "width": 780,
+        "height": 640,
+        "minWidth": 780,
+        "minHeight": 640,
+        "maxWidth": 780,
+        "maxHeight": 640,
+        "center": true,
+        "resizable": false,
+        "maximizable": false,
+        "decorations": false,
+        "transparent": false,
+        "shadow": true,
+        "dragDropEnabled": false,
+        "zoomHotkeysEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost",
+      "assetProtocol": {
+        "enable": false
+      }
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": [],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "copyright": "YT Downloader",
+    "category": "Utility",
+    "shortDescription": "YT Downloader installer",
+    "longDescription": "Installer and uninstaller for YT Downloader."
+  }
+}

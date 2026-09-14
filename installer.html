@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>YT Downloader 安装程序</title>
+    <script>
+      // Apply the persisted theme before the first paint so the installer window never
+      // flashes the wrong surface colour while the React tree is still mounting. Same
+      // key and same resolution as the main window (see index.html).
+      (function () {
+        try {
+          var raw = localStorage.getItem("ytd.theme");
+          var mode = raw ? JSON.parse(raw).state.mode : "dark";
+          var resolved =
+            mode === "system"
+              ? window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark"
+              : mode;
+          var root = document.documentElement;
+          root.classList.remove("light", "dark");
+          root.classList.add(resolved === "light" ? "light" : "dark");
+          root.style.colorScheme = resolved === "light" ? "light" : "dark";
+        } catch (error) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/installer/main.tsx"></script>
+  </body>
+</html>
