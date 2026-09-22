@@ -26,15 +26,21 @@
 [CmdletBinding()]
 param(
     [string] $SetupPath,
-    [string] $InstallDir = 'E:\YTDownloader-InstallTest'
+    [string] $InstallDir
 )
 
 $ErrorActionPreference = 'Continue'
 Set-StrictMode -Version Latest
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+$Workspace = Split-Path -Parent $ProjectRoot
 if (-not $SetupPath) {
     $SetupPath = Join-Path $ProjectRoot 'release\installer\YT Downloader Setup.exe'
+}
+if (-not $InstallDir) {
+    # Inside the workspace by default: the verification installs and uninstalls 670 MB and
+    # must never claim a real location, while still exercising a path with a space in it.
+    $InstallDir = Join-Path $Workspace '.caches\install-test'
 }
 
 $script:Passed = 0
@@ -51,16 +57,27 @@ function Check([bool] $Condition, [string] $Message) {
     }
 }
 
+function Format-Arguments([string[]] $Arguments) {
+    # `Start-Process -ArgumentList` joins an array with spaces and never quotes, so any
+    # argument containing a space would reach the installer split into several arguments.
+    # That matters here: the default install target lives under "YTDownloader" inside a
+    # workspace path that itself contains a space, and a real user path
+    # ("E:\YT Downloader") has one too. Quoting is therefore part of the test.
+    ($Arguments | ForEach-Object {
+            if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ }
+        }) -join ' '
+}
+
 function Run-Uninstaller([string[]] $Arguments) {
     # The installed uninstaller, which is what the Start Menu entry launches.
     $exe = Join-Path $InstallDir 'uninstall.exe'
     if (-not (Test-Path $exe)) { return 127 }
-    $process = Start-Process -FilePath $exe -ArgumentList $Arguments -Wait -PassThru
+    $process = Start-Process -FilePath $exe -ArgumentList (Format-Arguments $Arguments) -Wait -PassThru
     return $process.ExitCode
 }
 function Run-Setup([string[]] $Arguments) {
     # The setup is a GUI-subsystem executable: PowerShell must be told to wait.
-    $process = Start-Process -FilePath $SetupPath -ArgumentList $Arguments -Wait -PassThru
+    $process = Start-Process -FilePath $SetupPath -ArgumentList (Format-Arguments $Arguments) -Wait -PassThru
     return $process.ExitCode
 }
 

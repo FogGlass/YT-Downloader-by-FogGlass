@@ -96,10 +96,20 @@ pub async fn probe_url(
     let is_playlist = playlist.unwrap_or_else(|| ytdlp::is_playlist_url(&url));
     let without_cookies = ignore_cookies.unwrap_or(false);
 
+    // Report what yt-dlp will actually receive: "configured" only when a cookie argument is
+    // really built. Feeding a browser name or a cookies.txt path that is empty produces no
+    // argument at all, and saying "configured" then hides that from the log.
+    let cookie_state = if without_cookies {
+        "skipped"
+    } else if ytdlp::cookies_are_effective(&settings) {
+        "configured"
+    } else {
+        "none"
+    };
+
     log_info!(
         "probe",
-        "probing {url} (playlist={is_playlist}, cookies={})",
-        if without_cookies { "skipped" } else { "configured" }
+        "probing {url} (playlist={is_playlist}, cookies={cookie_state})"
     );
 
     let probe = ytdlp::probe(

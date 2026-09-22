@@ -707,9 +707,10 @@ function TaskCardBase({ task, onOpenFile }: TaskCardProps) {
               <p className="text-label leading-[1.1rem] font-medium text-content">
                 {error.summary}
               </p>
-              {/* Actionable guidance is user copy, never hidden behind Expert Mode. */}
+              {/* Actionable guidance is user copy, never hidden behind Expert Mode.
+                  Cookie failures arrive as a numbered checklist, so newlines matter. */}
               {error.hint ? (
-                <p className="mt-1 text-caption leading-[1.05rem] text-content-secondary">
+                <p className="mt-1 text-caption leading-[1.05rem] whitespace-pre-line text-content-secondary">
                   {error.hint}
                 </p>
               ) : null}

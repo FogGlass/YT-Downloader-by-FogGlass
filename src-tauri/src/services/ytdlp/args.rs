@@ -120,6 +120,15 @@ fn cookie_args(settings: &AppSettings) -> Vec<String> {
     }
 }
 
+/// Whether the cookie settings actually produce a yt-dlp cookie argument.
+///
+/// "Cookies are enabled" and "cookies reach yt-dlp" are not the same thing: an empty
+/// browser field or an empty cookies.txt path yields no argument at all. Diagnostics and
+/// logs go through this so they never claim cookies were used when nothing was passed.
+pub fn cookies_are_effective(settings: &AppSettings) -> bool {
+    !cookie_args(settings).is_empty()
+}
+
 /// Tell yt-dlp exactly which FFmpeg to use.
 fn ffmpeg_location(tools: &ToolSet) -> Option<String> {
     tools

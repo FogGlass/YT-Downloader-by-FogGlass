@@ -76,9 +76,40 @@ const RULES: &[Rule] = &[
             "app bound encryption",
             "decryption failed",
         ],
-        summary: "无法解密 Edge 的 Cookie 数据库",
-        hint: "Edge 127 及以后使用「应用绑定加密」保护 Cookie，yt-dlp 无法直接解密。\
-               请在「设置 → Cookies」改用导出的 cookies.txt，或选择「不使用 Cookie」继续下载。",
+        summary: "无法解密浏览器的 Cookie 数据库",
+        hint: concat!(
+            "浏览器 Cookies 获取失败：Chromium 系浏览器（Chrome / Edge 127 及以上）使用「应用绑定加密」",
+            "保存 Cookie，yt-dlp 无法解密。\n",
+            "请检查：\n",
+            "1. 所选浏览器是否正确；\n",
+            "2. 浏览器 Profile 是否正确；\n",
+            "3. 浏览器是否正在运行并锁定 Cookie 数据库；\n",
+            "4. 当前 yt-dlp 版本是否支持该浏览器的 Cookie。\n",
+            "若不需要登录状态：在「设置 → Cookies」关闭「使用浏览器 Cookies」后重新下载，",
+            "或直接使用下面的「不使用 Cookie 重试」。",
+        ),
+    },
+    Rule {
+        kind: FailureKind::Cookie,
+        needles: &[
+            // yt-dlp: `could not find chrome cookies database in "<path>"` — the chosen
+            // browser is usually simply not installed, or the profile name is wrong.
+            "cookies database in",
+            "no such profile",
+            "could not find profile",
+            "profile does not exist",
+        ],
+        summary: "找不到所选浏览器的 Cookie 数据库",
+        hint: concat!(
+            "浏览器 Cookies 获取失败：没有找到该浏览器的 Cookie 数据库。\n",
+            "请检查：\n",
+            "1. 所选浏览器是否正确 —— 它可能并没有安装在这台电脑上；\n",
+            "2. 浏览器 Profile 名称是否正确（例如 Default、Profile 1）；\n",
+            "3. 浏览器是否至少启动过一次；\n",
+            "4. 当前 yt-dlp 版本是否支持该浏览器的 Cookie。\n",
+            "若不需要登录状态：在「设置 → Cookies」关闭「使用浏览器 Cookies」后重新下载，",
+            "或直接使用下面的「不使用 Cookie 重试」。",
+        ),
     },
     Rule {
         kind: FailureKind::Cookie,
@@ -91,9 +122,17 @@ const RULES: &[Rule] = &[
             "being used by another process",
             "the process cannot access the file",
         ],
-        summary: "无法读取 Edge 的 Cookie 数据库",
-        hint: "数据库可能正被 Edge 占用。请完全退出 Edge（包括后台进程与托盘图标）后重试，\
-               或改用 cookies.txt，或选择「不使用 Cookie」继续。",
+        summary: "无法读取浏览器的 Cookie 数据库",
+        hint: concat!(
+            "浏览器 Cookies 获取失败：Cookie 数据库可能正被浏览器占用。\n",
+            "请检查：\n",
+            "1. 所选浏览器是否正确；\n",
+            "2. 浏览器 Profile 是否正确；\n",
+            "3. 浏览器是否正在运行并锁定 Cookie 数据库 —— 彻底退出浏览器（含后台进程与托盘图标）后重试；\n",
+            "4. 当前 yt-dlp 版本是否支持该浏览器的 Cookie。\n",
+            "若不需要登录状态：在「设置 → Cookies」关闭「使用浏览器 Cookies」后重新下载，",
+            "或直接使用下面的「不使用 Cookie 重试」。",
+        ),
     },
     Rule {
         kind: FailureKind::Cookie,
@@ -105,8 +144,15 @@ const RULES: &[Rule] = &[
             "failed to read cookies",
         ],
         summary: "没有读取浏览器 Cookie 的权限",
-        hint: "请以当前用户身份运行本程序，并确认浏览器配置文件未被其它账户占用；\
-               也可以改用 cookies.txt 或选择「不使用 Cookie」。",
+        hint: concat!(
+            "浏览器 Cookies 获取失败：当前账户没有读取该浏览器 Cookie 数据库的权限。\n",
+            "请检查：\n",
+            "1. 所选浏览器与 Profile 是否正确；\n",
+            "2. 浏览器是否被其它账户占用；\n",
+            "3. 是否需要以当前用户身份重新启动本程序。\n",
+            "若不需要登录状态：在「设置 → Cookies」关闭「使用浏览器 Cookies」后重新下载，",
+            "或直接使用下面的「不使用 Cookie 重试」。",
+        ),
     },
     // ---- Authentication ---------------------------------------------------
     Rule {
@@ -315,10 +361,15 @@ mod tests {
             Some(1),
         ));
         assert_eq!(error.kind, "cookie");
-        assert_eq!(error.summary, "无法解密 Edge 的 Cookie 数据库");
+        assert_eq!(error.summary, "无法解密浏览器的 Cookie 数据库");
+        let hint = error.hint.unwrap();
         assert!(
-            error.hint.unwrap().contains("cookies.txt"),
-            "the hint must offer a way forward"
+            hint.contains("请检查"),
+            "the hint must list what to check: {hint}"
+        );
+        assert!(
+            hint.contains("不使用 Cookie 重试"),
+            "the hint must offer a way forward: {hint}"
         );
     }
 
@@ -333,7 +384,26 @@ mod tests {
         assert_eq!(error.kind, "cookie");
         assert_ne!(error.kind, "auth");
         assert!(error.summary.contains("无法读取"));
-        assert!(error.hint.as_deref().unwrap_or("").contains("退出 Edge"));
+        assert!(
+            error.hint.as_deref().unwrap_or("").contains("退出浏览器"),
+            "the hint must tell the user to close the locked browser"
+        );
+    }
+
+    #[test]
+    fn a_missing_browser_is_reported_as_a_missing_cookie_database() {
+        // yt-dlp's wording when the selected browser is not installed at all.
+        let error = from_outcome(&outcome(
+            &[r#"ERROR: could not find chrome cookies database in "C:\Users\x\AppData\Local\Google\Chrome\User Data""#],
+            Some(1),
+        ));
+        assert_eq!(error.kind, "cookie");
+        assert!(error.summary.contains("找不到"), "summary was {}", error.summary);
+        let hint = error.hint.unwrap_or_default();
+        assert!(
+            hint.contains("所选浏览器是否正确"),
+            "the first thing to check is the chosen browser: {hint}"
+        );
     }
 
     #[test]

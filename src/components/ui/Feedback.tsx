@@ -110,9 +110,10 @@ export function ErrorState({
       </div>
 
       {/* Guidance is the part a user can act on, so it is never hidden behind a
-          collapsed "details" block. */}
+          collapsed "details" block. Hints may be a numbered checklist, hence
+          whitespace-pre-line. */}
       {hint ? (
-        <p className="mx-auto max-w-md rounded-[var(--radius-sm)] border border-line bg-surface px-3 py-2 text-caption leading-[1.15rem] text-content-secondary">
+        <p className="mx-auto max-w-md rounded-[var(--radius-sm)] border border-line bg-surface px-3 py-2 text-caption leading-[1.15rem] whitespace-pre-line text-content-secondary">
           {hint}
         </p>
       ) : null}

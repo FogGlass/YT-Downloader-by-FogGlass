@@ -386,4 +386,61 @@ mod tests {
         // Missing sections fall back to the documented defaults.
         assert_eq!(restored.network.retries, 10);
     }
+
+    #[test]
+    fn browser_cookies_are_off_for_a_new_user() {
+        // A fresh profile must download without touching any browser store: the default is
+        // "no cookies", while the feature itself stays available.
+        let settings = AppSettings::default();
+        assert_eq!(settings.cookies.mode, CookieMode::None);
+        assert!(!crate::services::ytdlp::cookies_are_effective(&settings));
+    }
+
+    #[test]
+    fn a_missing_cookie_section_defaults_to_off_without_touching_the_other_sections() {
+        let restored: AppSettings =
+            serde_json::from_str("{\"cookies\":{},\"downloads\":{\"concurrency\":3}}").unwrap();
+        assert_eq!(restored.cookies.mode, CookieMode::None);
+        assert_eq!(restored.downloads.concurrency, 3);
+    }
+
+    #[test]
+    fn an_existing_cookie_choice_is_never_overwritten() {
+        // Upgrading must not flip a user's explicit choice, whichever way they set it.
+        for (json, expected) in [
+            ("{\"cookies\":{\"mode\":\"browser\",\"browser\":\"edge\",\"profile\":\"Default\"}}", CookieMode::Browser),
+            ("{\"cookies\":{\"mode\":\"file\",\"file\":\"E:\\\\cookies.txt\"}}", CookieMode::File),
+            ("{\"cookies\":{\"mode\":\"none\"}}", CookieMode::None),
+        ] {
+            let restored: AppSettings = serde_json::from_str(json).unwrap();
+            assert_eq!(restored.cookies.mode, expected, "input: {json}");
+        }
+
+        let browser: AppSettings =
+            serde_json::from_str("{\"cookies\":{\"mode\":\"browser\",\"browser\":\"edge\",\"profile\":\"Default\"}}")
+                .unwrap();
+        assert_eq!(browser.cookies.browser, "edge");
+        assert_eq!(browser.cookies.profile, "Default");
+        assert!(crate::services::ytdlp::cookies_are_effective(&browser));
+    }
+
+    #[test]
+    fn cookies_are_only_effective_when_a_source_is_actually_configured() {
+        let mut settings = AppSettings::default();
+
+        settings.cookies.mode = CookieMode::Browser;
+        settings.cookies.browser = "edge".into();
+        assert!(crate::services::ytdlp::cookies_are_effective(&settings));
+
+        // Enabled but empty: nothing is passed to yt-dlp, and diagnostics must say so.
+        settings.cookies.browser = "   ".into();
+        assert!(!crate::services::ytdlp::cookies_are_effective(&settings));
+
+        settings.cookies.mode = CookieMode::File;
+        settings.cookies.file = String::new();
+        assert!(!crate::services::ytdlp::cookies_are_effective(&settings));
+
+        settings.cookies.file = r"E:\cookies.txt".into();
+        assert!(crate::services::ytdlp::cookies_are_effective(&settings));
+    }
 }

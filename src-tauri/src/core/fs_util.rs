@@ -160,6 +160,31 @@ pub fn shell_open_url(url: &str) -> AppResult<()> {
     }
 }
 
+/// Absolute, Explorer-friendly form of a path.
+///
+/// Explorer resolves a relative path against its *own* working directory, so a relative
+/// path would silently open the wrong place; and it does not understand the `\\?\`
+/// verbatim prefix that canonicalisation adds. Both are normalised away here.
+fn explorer_path(path: &Path) -> PathBuf {
+    let absolute = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    match absolute.to_string_lossy().strip_prefix(r"\\?\") {
+        Some(trimmed) => PathBuf::from(trimmed),
+        None => absolute,
+    }
+}
+
+/// The single command-line token Explorer needs to open a folder with one item selected.
+///
+/// The switch and the path belong to the *same* token: `/select,"<path>"`. The quotes must
+/// reach Explorer inside that token, which is why the caller appends this with `raw_arg`.
+/// Going through `Command::arg` instead makes the standard library quote the whole token as
+/// soon as the path contains a space — `"/select,D:\My Videos\a.mp4"` — and Explorer then
+/// fails to recognise the switch and opens its default folder (Documents) instead of the
+/// download. Paths without spaces were passed verbatim, which is why the bug looked random.
+fn select_argument(path: &Path) -> String {
+    format!("/select,\"{}\"", path.display())
+}
+
 /// Reveal a file inside Explorer with the item pre-selected.
 pub fn shell_reveal(path: &Path) -> AppResult<()> {
     #[cfg(windows)]
@@ -167,27 +192,35 @@ pub fn shell_reveal(path: &Path) -> AppResult<()> {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-        if path.is_dir() {
-            return shell_open(path);
+        let target = explorer_path(path);
+
+        if target.is_dir() {
+            return shell_open(&target);
         }
-        if !path.exists() {
-            // Fall back to the containing folder when the file itself vanished.
-            if let Some(parent) = path.parent() {
+        if !target.exists() {
+            // Fall back to the containing folder when the file itself vanished. An error
+            // is always better than opening an unrelated default folder.
+            if let Some(parent) = target.parent() {
                 if parent.exists() {
                     return shell_open(parent);
                 }
             }
             return Err(AppError::NotFound(format!(
                 "路径不存在：{}",
-                path.display()
+                target.display()
             )));
         }
 
+        // `raw_arg` keeps the quoting exactly as Explorer expects it; the standard library
+        // would otherwise re-quote the whole `/select,<path>` token.
+        let argument = select_argument(&target);
+        crate::log_debug!("shell", "explorer.exe {argument}");
+
         std::process::Command::new("explorer")
-            .arg(format!("/select,{}", path.display()))
+            .raw_arg(&argument)
             .creation_flags(CREATE_NO_WINDOW)
             .spawn()
-            .map_err(|error| AppError::Process(format!("无法定位 {}：{error}", path.display())))?;
+            .map_err(|error| AppError::Process(format!("无法定位 {}：{error}", target.display())))?;
         Ok(())
     }
 
@@ -224,5 +257,51 @@ mod tests {
         let best = best_match_for_prefix(&dir, "clip.video").unwrap();
         assert!(best.ends_with("clip.video.webm"));
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn select_argument_quotes_the_path_but_not_the_switch() {
+        // Regression: the whole `/select,<path>` token used to be handed to `Command::arg`,
+        // so Rust quoted it as one piece whenever the path contained a space. Explorer then
+        // failed to parse the switch and opened Documents.
+        assert_eq!(
+            select_argument(Path::new(r"D:\Downloads\YouTube\video.mp4")),
+            r#"/select,"D:\Downloads\YouTube\video.mp4""#
+        );
+        assert_eq!(
+            select_argument(Path::new(r"D:\视频\YouTube\video.mp4")),
+            "/select,\"D:\\视频\\YouTube\\video.mp4\""
+        );
+        assert_eq!(
+            select_argument(Path::new(r"D:\Downloads\鸣潮\寻心.mp4")),
+            "/select,\"D:\\Downloads\\鸣潮\\寻心.mp4\""
+        );
+        assert_eq!(
+            select_argument(Path::new(r"D:\Downloads\YouTube Videos\test video.mp4")),
+            r#"/select,"D:\Downloads\YouTube Videos\test video.mp4""#
+        );
+        assert_eq!(
+            select_argument(Path::new(r"D:\Downloads\YouTube\test (1080p).mp4")),
+            r#"/select,"D:\Downloads\YouTube\test (1080p).mp4""#
+        );
+        // Shapes this application actually produces: CJK titles, brackets, apostrophes and
+        // fullwidth punctuation all survive unchanged.
+        assert_eq!(
+            select_argument(Path::new(r"E:\下载\【MV】(Live) Don't Stop Me Now！？.mkv")),
+            "/select,\"E:\\下载\\【MV】(Live) Don't Stop Me Now！？.mkv\""
+        );
+    }
+
+    #[test]
+    fn explorer_path_is_absolute_and_has_no_verbatim_prefix() {
+        let relative = explorer_path(Path::new(r"data\downloads\clip.mkv"));
+        assert!(relative.is_absolute());
+        assert!(!relative.to_string_lossy().starts_with(r"\\?\"));
+
+        let verbatim = explorer_path(Path::new(r"\\?\E:\下载\clip.mkv"));
+        assert_eq!(verbatim, PathBuf::from(r"E:\下载\clip.mkv"));
+
+        let plain = explorer_path(Path::new(r"E:\下载\clip.mkv"));
+        assert_eq!(plain, PathBuf::from(r"E:\下载\clip.mkv"));
     }
 }

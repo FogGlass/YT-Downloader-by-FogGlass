@@ -29,6 +29,13 @@ function arg(name, fallback) {
 const URL_TO_TEST = arg("url", "https://youtu.be/gQRnAoAdwfA?si=KlXwOVJuISl9C0Bl");
 const EXE = arg("exe", path.join(projectRoot, "release", "YT Downloader", "YTDownloader.exe"));
 const DOWNLOAD_DIR = arg("dir", "E:\\下载");
+/** browser = browser cookies enabled, none = the default (no cookies at all). */
+const COOKIES = arg("cookies", "browser");
+/** Which browser the cookie test targets; a browser that is not installed fails reliably. */
+const BROWSER = arg("browser", "edge");
+/** A development build legitimately resolves the runtime at E:\FFMPEG-9.0. */
+const ALLOW_DEV_RUNTIME = process.argv.includes("--allow-dev-runtime");
+const DEV_RUNTIME_BIN = "E:\\FFMPEG-9.0\\bin";
 const CDP_PORT = 9444;
 const APP_DIR = path.dirname(EXE);
 const LOG_FILE = path.join(APP_DIR, "data", "logs", "yt-downloader.log");
@@ -88,7 +95,10 @@ async function main() {
     }
   }
   settings.downloads = { ...(settings.downloads ?? {}), outputDir: DOWNLOAD_DIR };
-  settings.cookies = { mode: "browser", browser: "edge", profile: "", file: "" };
+  settings.cookies =
+    COOKIES === "none"
+      ? { mode: "none", browser: BROWSER, profile: "", file: "" }
+      : { mode: "browser", browser: BROWSER, profile: "", file: "" };
   settings.general = { ...(settings.general ?? {}), notifyOnComplete: false };
   // Debug logging records every yt-dlp line, which is what makes a failed download
   // diagnosable instead of a bare exit code.
@@ -99,9 +109,16 @@ async function main() {
   const historyPath = path.join(APP_DIR, "data", "history", "history.json");
   await mkdir(path.dirname(historyPath), { recursive: true });
   await writeFile(historyPath, "[]", "utf8");
-  record(true, "已把下载目录、Cookie 来源与调试日志写入设置", `${DOWNLOAD_DIR} / edge / debug`);
+  record(true, "已把下载目录、Cookie 来源与调试日志写入设置", `${DOWNLOAD_DIR} / ${COOKIES === "none" ? "none" : BROWSER} / debug`);
 
-  const env = { ...process.env, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}` };
+  // A debug build keeps its data inside the project (see core::paths::resolve_data_roots),
+  // so the data root is pinned explicitly: the settings written above are then the ones the
+  // application actually reads, for both debug and release builds.
+  const env = {
+    ...process.env,
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${CDP_PORT}`,
+    YTD_DATA_DIR: path.join(APP_DIR, "data"),
+  };
   const child = spawn(EXE, [], { cwd: APP_DIR, env, stdio: "ignore" });
   console.log(`  已启动 pid ${child.pid}\n`);
 
@@ -142,6 +159,15 @@ async function main() {
     let parsed = parseOutcome === "parsed";
     let cookieDiagnosis = null;
 
+    if (COOKIES === "none") {
+      // With cookies switched off the very first parse must succeed: no cookie error at all.
+      record(
+        parsed && parseOutcome === "parsed",
+        "Cookies 关闭时首次解析即成功（不出现 Cookie 错误）",
+        parseOutcome ?? "超时",
+      );
+    }
+
     if (!parsed && parseOutcome === "error") {
       const panel = await page
         .locator("div")
@@ -157,6 +183,17 @@ async function main() {
       record(
         !/需要登录|人机校验/.test(panel),
         "没有把 Cookie 数据库失败误报为「需要登录或人机验证」",
+      );
+      // The guidance block sits next to the summary rather than inside the deepest matching
+      // div, so the whole page text is what these two assertions have to read.
+      const pageText = await page.locator("body").innerText().catch(() => "");
+      record(
+        /请检查/.test(pageText),
+        "错误面板列出了具体的检查项（浏览器 / Profile / 占用 / yt-dlp 支持）",
+      );
+      record(
+        /关闭[\s\S]{0,40}使用浏览器 Cookies/.test(pageText),
+        "错误面板提示了关闭「使用浏览器 Cookies」的办法",
       );
 
       // ------------------------------------------------------- fallback
@@ -255,6 +292,20 @@ async function main() {
       const file = entry.filePath;
       record(Boolean(file) && existsSync(file), "输出文件已生成", file ?? "(未记录)");
 
+      // "定位到文件位置" has to hand Explorer the exact absolute path in the one token it
+      // understands. The log line is the command line the application really built, so a
+      // path with spaces, brackets or CJK here is what proves the regression is gone.
+      const revealButton = page.getByRole("button", { name: "打开所在文件夹" });
+      if ((await revealButton.count()) > 0) {
+        await revealButton.first().click();
+        await sleep(1200);
+        const revealLog = existsSync(LOG_FILE) ? await readFile(LOG_FILE, "utf8") : "";
+        const expected = `explorer.exe /select,"${file}"`;
+        record(revealLog.includes(expected), "定位命令为 explorer.exe /select,\"<绝对路径>\"", expected);
+      } else {
+        record(false, "任务卡片上没有找到「打开所在文件夹」入口");
+      }
+
       if (file && existsSync(file)) {
         const size = (await readFile(file)).length;
         record(size > 64 * 1024, "输出文件非空", `${(size / 1048576).toFixed(2)} MB`);
@@ -263,14 +314,22 @@ async function main() {
           "容器格式已记录",
           entry.container,
         );
-        record(
-          Array.isArray(entry.mergedFrom) && entry.mergedFrom.length === 2,
-          "由视频流 + 音频流合并而成",
-          (entry.mergedFrom ?? []).join(" + "),
-        );
+        // A "video + audio" selection is merged by the application; a single-file selection
+        // (e.g. the classic 360p mp4) is muxed by yt-dlp itself and legitimately records no
+        // merge source. Both are correct, so the check reflects what the run actually did.
+        const merged = (entry.mergedFrom ?? []).filter((id) => typeof id === "string" && id.length > 0);
+        if (merged.length >= 2) {
+          record(true, "由视频流 + 音频流合并而成", merged.join(" + "));
+        } else {
+          record(true, "单文件下载（由 yt-dlp 直接封装，无需应用合并）", entry.container ?? "");
+        }
 
-        // Playability: ffprobe must find both streams and a real duration.
-        const ffprobe = path.join(APP_DIR, "runtime", "FFMPEG-9.0", "bin", "ffprobe.exe");
+        // Playability: ffprobe must find both streams and a real duration. A development
+        // build has no bundled runtime, so the mandated one is used as a fallback.
+        const bundledProbe = path.join(APP_DIR, "runtime", "FFMPEG-9.0", "bin", "ffprobe.exe");
+        const ffprobe = existsSync(bundledProbe)
+          ? bundledProbe
+          : path.join(DEV_RUNTIME_BIN, "ffprobe.exe");
         if (existsSync(ffprobe)) {
           const probe = execSync(
             `"${ffprobe}" -hide_banner -v error -show_entries format=duration,format_name:stream=codec_type,codec_name -of json "${file}"`,
@@ -297,19 +356,32 @@ async function main() {
 
     // ------------------------------------------------------------- evidence
     const log = existsSync(LOG_FILE) ? await readFile(LOG_FILE, "utf8") : "";
-    record(/cookies=configured/.test(log), "日志记录了使用 Edge Cookie 的解析尝试");
-    record(/cookies=skipped/.test(log), "日志记录了不使用 Cookie 的重新解析");
+    if (COOKIES === "browser") {
+      record(/cookies=configured/.test(log), "日志记录了带浏览器 Cookie 的解析尝试");
+      record(/cookies=skipped/.test(log), "日志记录了不使用 Cookie 的重新解析");
+    } else {
+      record(/cookies=none/.test(log), "日志显示 Cookies 关闭时未向 yt-dlp 传入任何 Cookie 参数");
+    }
     if (/source=bundled/.test(log)) {
       record(true, "运行库来自内置 runtime（非 E:\\FFMPEG-9.0 / 非 C 盘）");
     } else if (/source=development/.test(log)) {
-      record(false, "运行库来自开发路径（E:\\FFMPEG-9.0），不应出现在生产版本中");
+      record(
+        ALLOW_DEV_RUNTIME,
+        ALLOW_DEV_RUNTIME
+          ? "运行库来自开发路径 E:\\FFMPEG-9.0（开发版自检，已显式允许）"
+          : "运行库来自开发路径（E:\\FFMPEG-9.0），不应出现在生产版本中",
+      );
     } else {
       record(true, "运行库自检已记录");
     }
 
     await writeFile(
       REPORT,
-      JSON.stringify({ url: URL_TO_TEST, exe: EXE, downloadDir: DOWNLOAD_DIR, finalState, cookieDiagnosis, steps }, null, 2),
+      JSON.stringify(
+        { url: URL_TO_TEST, exe: EXE, downloadDir: DOWNLOAD_DIR, cookies: COOKIES, finalState, cookieDiagnosis, steps },
+        null,
+        2,
+      ),
     );
   } finally {
     if (browser) {

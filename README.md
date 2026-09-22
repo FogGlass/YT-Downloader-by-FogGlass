@@ -300,7 +300,7 @@ src/
 ## 测试
 
 ```powershell
-# Rust 单元测试（127 项）
+# Rust 单元测试（134 项）
 cd src-tauri; cargo test --lib
 
 # Rust 集成测试（真实调用 FFmpeg / yt-dlp）
@@ -312,6 +312,10 @@ $env:YTD_LIVE_TESTS='1'; cargo test --test integration
 # 前端类型检查 + 构建
 npm run build
 ```
+
+「定位到文件位置」需要肉眼确认：`scripts/verify-reveal.ps1` 会创建中文、空格、
+括号等名称的测试文件，逐个调用定位功能，再用 Shell 自动化读回资源管理器窗口，
+核对打开的是文件所在目录且目标文件处于选中状态。
 
 集成测试覆盖：真实 VP9+Opus 合流并用 ffprobe 校验、章节元数据往返、
 进程取消真正终止编码、超时终止、失败退出码与 stderr 捕获、
@@ -345,6 +349,15 @@ schannel 栈，与 yt-dlp 使用的 Python/OpenSSL 栈不同）。这通常来�
 
 ## 许可与致谢
 
-本项目为个人使用的桌面工具，遵循以下组件的许可：
-[yt-dlp](https://github.com/yt-dlp/yt-dlp)、FFmpeg、Tauri、React。
-内置的 FFmpeg 构建来自 gyan.dev，其 `LICENSE` 随 `runtime\FFMPEG-9.0` 一并分发。
+本项目以 [MIT 许可证](LICENSE) 开源：可自由使用、修改与再分发，需保留版权与许可声明。
+
+第三方组件遵循各自的许可：
+
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp)（Unlicense）— 下载核心，以独立进程调用；
+- FFmpeg — 媒体处理，以独立进程调用。Release 内置的构建来自
+  [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)，其 `LICENSE` 随 `runtime\FFMPEG-9.0` 一并分发
+  （该构建含 GPL 组件，随包分发内置运行库时需一并遵守其条款）；
+- [Tauri](https://tauri.app/)、[React](https://react.dev/)、Tailwind CSS 等框架与依赖，遵循其原始许可。
+
+本应用不绕过 DRM、付费墙或任何访问控制，只调用上述工具处理用户自己有权获取的内容。
+

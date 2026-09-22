@@ -19,8 +19,8 @@ use crate::runtime::{yt_dlp_spec, ToolSet};
 use crate::{log_debug, log_info};
 
 pub use args::{
-    candidate_extensions, fallback_format_expression, is_playlist_url, probe_args,
-    resolve_container, selection_summary,
+    candidate_extensions, cookies_are_effective, fallback_format_expression, is_playlist_url,
+    probe_args, resolve_container, selection_summary,
     split_extra_args, stream_args, thumbnail_args, StreamSpec,
 };
 pub use errors::{classify, from_outcome, hint_for, salient_line, FailureKind};
