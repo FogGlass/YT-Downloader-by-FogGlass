@@ -1,5 +1,8 @@
 # YT Downloader
 
+> 本项目**全程使用 DeepSeek-V4.1Flash 制作**：界面、Rust 后端、安装器与卸载器、
+> 构建脚本与验证工具均由其编写。
+
 一款面向 Windows 的现代桌面视频下载工具。底层使用 **yt-dlp + FFmpeg**，
 上层是 **Tauri 2 + Rust + React 19 + TypeScript + Tailwind CSS v4**。
 
@@ -360,4 +363,6 @@ schannel 栈，与 yt-dlp 使用的 Python/OpenSSL 栈不同）。这通常来�
 - [Tauri](https://tauri.app/)、[React](https://react.dev/)、Tailwind CSS 等框架与依赖，遵循其原始许可。
 
 本应用不绕过 DRM、付费墙或任何访问控制，只调用上述工具处理用户自己有权获取的内容。
+
+本项目全程使用 **DeepSeek-V4.1Flash** 制作，特此致谢。
 
