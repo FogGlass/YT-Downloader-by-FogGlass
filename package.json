@@ -1,7 +1,7 @@
 {
   "name": "yt-downloader",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.2",
   "type": "module",
   "description": "YT Downloader - a modern desktop workbench for downloading video with yt-dlp and FFmpeg",
   "scripts": {
