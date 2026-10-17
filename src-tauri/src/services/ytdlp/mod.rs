@@ -75,6 +75,21 @@ pub async fn probe(
         return Err(AppError::Message("解析已取消".into()));
     }
 
+    // A failed process is a failure even when it wrote something to stdout. yt-dlp prints
+    // the literal `null` for some extractor errors — YouTube's "Sign in to confirm you're
+    // not a bot" wall does exactly that — and `null` parses as valid JSON. Reporting that
+    // as "parsed, but nothing downloadable" hid the real reason, so the classified error is
+    // returned first and the payload is only inspected for a process that actually worked.
+    if !outcome.success() {
+        let error = from_outcome(&outcome);
+        return Err(AppError::Classified {
+            kind: error.kind.clone(),
+            summary: error.summary.clone(),
+            hint: error.hint.clone().or_else(|| hint_for(FailureKind::Runtime)),
+            detail: error.detail.clone(),
+        });
+    }
+
     let payload = collected
         .lock()
         .map(|guard| guard.join("\n"))
@@ -99,6 +114,14 @@ pub async fn probe(
             payload.chars().take(200).collect::<String>()
         ))
     })?;
+
+    // `null` is yt-dlp's "extraction produced nothing" value; treat it as that, not as a
+    // successfully parsed probe.
+    if value.is_null() {
+        return Err(AppError::Process(
+            "yt-dlp 没有返回任何内容（可能是该链接需要登录验证，或视频不可用）".into(),
+        ));
+    }
 
     let mut probe = parse_probe(&value, url);
     // Derive the selector rows with the user's live preferences.

@@ -158,6 +158,9 @@ const RULES: &[Rule] = &[
     Rule {
         kind: FailureKind::Auth,
         needles: &[
+            // "not a bot" is apostrophe-agnostic on purpose: yt-dlp prints a typographic
+            // apostrophe (') in some versions and a plain one in others.
+            "not a bot",
             "sign in to confirm you're not a bot",
             "sign in to confirm your age",
             "this video may be inappropriate for some users",
@@ -166,7 +169,15 @@ const RULES: &[Rule] = &[
             "use --cookies",
         ],
         summary: "需要登录或通过人机校验",
-        hint: "请在「设置 → Cookies」中启用浏览器 Cookies，或指定 cookies.txt 后重试。",
+        hint: concat!(
+            "这是 YouTube 的登录 / 人机验证：未携带登录 Cookie 的请求现在经常被整体拦截，",
+            "与具体视频无关。\n",
+            "解决办法：\n",
+            "1. 在「设置 → Cookies」启用浏览器 Cookies（浏览器需已登录 YouTube，且最好先完全退出）；\n",
+            "2. 或使用浏览器扩展导出 cookies.txt，在「设置 → Cookies」选择该文件；\n",
+            "3. 换一个网络出口（例如手机热点）后重试，风控通常按 IP 判定；\n",
+            "4. 这类拦截有时几小时到几天后自行解除，可稍后再试。",
+        ),
     },
     Rule {
         kind: FailureKind::Drm,

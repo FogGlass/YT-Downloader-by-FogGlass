@@ -31,6 +31,7 @@
 
 # Editor and OS noise.
 *.local
+*.tmp
 .DS_Store
 Thumbs.db
 desktop.ini
