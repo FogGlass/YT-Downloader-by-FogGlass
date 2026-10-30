@@ -259,35 +259,26 @@ fn parse_entries(payload: &Value) -> Vec<PlaylistEntry> {
 // ---------------------------------------------------------------------------
 
 /// Rank a video codec against the user's preference (lower is better).
+///
+/// `Auto` — the default — prefers AV1, then VP9, then H.264, then anything else. The rank
+/// is only one tie-breaker inside [`sort_options`]: resolution, frame rate and HDR all
+/// compare *before* it, so preferring AV1 can never trade away a higher resolution, a
+/// higher frame rate or an HDR transfer.
+///
+/// An explicit choice keeps its own codec first and otherwise follows the same chain, so
+/// "no AV1 available" degrades to VP9 and then to H.264 instead of failing.
 fn codec_rank(codec: &Option<String>, preference: CodecPreference) -> u8 {
     let label = codec.clone().unwrap_or_default();
-    match preference {
-        CodecPreference::Av1 => match label.as_str() {
-            "AV1" => 0,
-            "VP9" => 1,
-            _ => 2,
-        },
-        CodecPreference::Vp9 => match label.as_str() {
-            "VP9" => 0,
-            "AV1" => 1,
-            _ => 2,
-        },
-        CodecPreference::H264 => match label.as_str() {
-            "H.264" => 0,
-            "VP9" => 1,
-            _ => 2,
-        },
-        // Automatic keeps the project's documented default: WebM + Opus, which
-        // means VP9 for video. AV1 stores the same quality in fewer bytes but its
-        // stream arrives in an MP4 container, so it is offered as an explicit
-        // choice rather than silently replacing the WebM default.
-        CodecPreference::Auto => match label.as_str() {
-            "VP9" => 0,
-            "AV1" => 1,
-            "H.264" => 2,
-            _ => 3,
-        },
-    }
+    let order: [&str; 3] = match preference {
+        CodecPreference::Auto | CodecPreference::Av1 => ["AV1", "VP9", "H.264"],
+        CodecPreference::Vp9 => ["VP9", "AV1", "H.264"],
+        CodecPreference::H264 => ["H.264", "VP9", "AV1"],
+    };
+    order
+        .iter()
+        .position(|candidate| *candidate == label)
+        .map(|index| index as u8)
+        .unwrap_or(order.len() as u8)
 }
 
 fn audio_rank(codec: &Option<String>, prefer_aac: bool) -> u8 {
@@ -576,6 +567,12 @@ fn resolution_label(format: &FormatInfo) -> String {
     }
 }
 
+/// Order the rows the way the application should offer them.
+///
+/// The comparison chain is deliberate and mirrors the project's policy: quality first
+/// (kind, resolution, frame rate, HDR), then the codec preference, then WebM over other
+/// containers for the same codec, and finally the bitrate. That order is what guarantees
+/// "AV1 preferred" can never downgrade the picture.
 fn sort_options(options: &mut [FormatOption], settings: &AppSettings) {
     let preference = settings.youtube.video_codec_preference;
     let prefer_fps = settings.youtube.prefer_60fps;
@@ -607,9 +604,18 @@ fn sort_options(options: &mut [FormatOption], settings: &AppSettings) {
                     std::cmp::Ordering::Equal
                 }
             })
+            // HDR outranks the codec preference: a VP9 HDR stream is a better picture than
+            // an SDR AV1 stream at the same resolution, and the codec must not override it.
+            .then_with(|| right.hdr.cmp(&left.hdr))
             .then_with(|| {
                 codec_rank(&left.video_codec, preference)
                     .cmp(&codec_rank(&right.video_codec, preference))
+            })
+            // Same codec, same quality: keep the project's WebM + Opus default by preferring
+            // the WebM rendition of that codec.
+            .then_with(|| {
+                let rank = |container: &str| if container.eq_ignore_ascii_case("webm") { 0 } else { 1 };
+                rank(&left.container).cmp(&rank(&right.container))
             })
             .then_with(|| {
                 right
@@ -799,9 +805,161 @@ mod tests {
             .find(|option| option.recommended)
             .expect("a recommended row");
         assert_eq!(recommended.height, Some(1080));
-        // Automatic preference ranks the WebM/Opus pair first.
+        // The automatic preference is AV1 → VP9 → H.264.
+        assert_eq!(recommended.video_codec.as_deref(), Some("AV1"));
+        // This fixture only ships AV1 inside MP4, so pairing it with Opus can only be
+        // expressed as Matroska; a WebM AV1 rendition (what YouTube also serves) would
+        // keep the WebM + Opus container.
+        assert_eq!(recommended.container, "mkv");
+        assert_eq!(recommended.audio_codec.as_deref(), Some("Opus"));
+    }
+
+    #[test]
+    fn vp9_is_used_when_av1_is_missing() {
+        let settings = settings();
+        let formats: Vec<FormatInfo> = json!([
+            { "format_id": "248", "ext": "webm", "vcodec": "vp09.00.10.08", "acodec": "none", "height": 1080, "fps": 30, "tbr": 3200.0 },
+            { "format_id": "251", "ext": "webm", "vcodec": "none", "acodec": "opus", "abr": 130.0 }
+        ])
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(parse_format)
+        .collect();
+
+        let options = build_format_options(&formats, &settings);
+        let recommended = options
+            .iter()
+            .find(|option| option.recommended)
+            .expect("a recommended row");
         assert_eq!(recommended.video_codec.as_deref(), Some("VP9"));
         assert_eq!(recommended.container, "webm");
+        assert_eq!(recommended.audio_codec.as_deref(), Some("Opus"));
+    }
+
+    #[test]
+    fn av1_pairs_with_aac_when_opus_is_missing() {
+        let settings = settings();
+        let formats: Vec<FormatInfo> = json!([
+            { "format_id": "399", "ext": "mp4", "vcodec": "av01.0.08M.08", "acodec": "none", "height": 1080, "fps": 30, "tbr": 2600.0 },
+            { "format_id": "140", "ext": "m4a", "vcodec": "none", "acodec": "mp4a.40.2", "abr": 128.0 }
+        ])
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(parse_format)
+        .collect();
+
+        let options = build_format_options(&formats, &settings);
+        let recommended = options
+            .iter()
+            .find(|option| option.recommended)
+            .expect("a recommended row");
+        assert_eq!(recommended.video_codec.as_deref(), Some("AV1"));
+        assert_eq!(recommended.audio_codec.as_deref(), Some("AAC"));
+        assert_eq!(recommended.container, "mp4");
+    }
+
+    #[test]
+    fn resolution_outranks_the_codec_preference() {
+        let settings = settings();
+        let formats: Vec<FormatInfo> = json!([
+            { "format_id": "399", "ext": "mp4", "vcodec": "av01.0.08M.08", "acodec": "none", "height": 1080, "fps": 30, "tbr": 2600.0 },
+            { "format_id": "313", "ext": "webm", "vcodec": "vp09", "acodec": "none", "height": 2160, "fps": 30, "tbr": 18000.0 },
+            { "format_id": "251", "ext": "webm", "vcodec": "none", "acodec": "opus", "abr": 130.0 }
+        ])
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(parse_format)
+        .collect();
+
+        let options = build_format_options(&formats, &settings);
+        let recommended = options
+            .iter()
+            .find(|option| option.recommended)
+            .expect("a recommended row");
+        assert_eq!(
+            recommended.height,
+            Some(2160),
+            "a 4K stream must win over the preferred codec"
+        );
+        assert_eq!(recommended.video_codec.as_deref(), Some("VP9"));
+    }
+
+    #[test]
+    fn hdr_outranks_the_codec_preference() {
+        let settings = settings();
+        let formats: Vec<FormatInfo> = json!([
+            { "format_id": "399", "ext": "mp4", "vcodec": "av01.0.08M.08", "acodec": "none", "height": 1080, "fps": 30, "tbr": 2600.0, "dynamic_range": "SDR" },
+            { "format_id": "337", "ext": "webm", "vcodec": "vp09", "acodec": "none", "height": 1080, "fps": 30, "tbr": 5000.0, "dynamic_range": "HDR" },
+            { "format_id": "251", "ext": "webm", "vcodec": "none", "acodec": "opus", "abr": 130.0 }
+        ])
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(parse_format)
+        .collect();
+
+        let options = build_format_options(&formats, &settings);
+        let recommended = options
+            .iter()
+            .find(|option| option.recommended)
+            .expect("a recommended row");
+        assert!(recommended.hdr, "an HDR stream must not lose to a codec preference");
+        assert_eq!(recommended.video_codec.as_deref(), Some("VP9"));
+    }
+
+    #[test]
+    fn frame_rate_outranks_the_codec_preference() {
+        let mut settings = settings();
+        settings.youtube.prefer_60fps = true;
+        let formats: Vec<FormatInfo> = json!([
+            { "format_id": "399", "ext": "mp4", "vcodec": "av01.0.08M.08", "acodec": "none", "height": 1080, "fps": 30, "tbr": 2600.0 },
+            { "format_id": "299", "ext": "mp4", "vcodec": "avc1.64002a", "acodec": "none", "height": 1080, "fps": 60, "tbr": 6000.0 },
+            { "format_id": "251", "ext": "webm", "vcodec": "none", "acodec": "opus", "abr": 130.0 }
+        ])
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(parse_format)
+        .collect();
+
+        let options = build_format_options(&formats, &settings);
+        let recommended = options
+            .iter()
+            .find(|option| option.recommended)
+            .expect("a recommended row");
+        assert_eq!(
+            recommended.fps,
+            Some(60.0),
+            "a 60 fps stream must win over the preferred codec"
+        );
+        assert_eq!(recommended.video_codec.as_deref(), Some("H.264"));
+    }
+
+    #[test]
+    fn webm_wins_between_identical_codecs() {
+        let settings = settings();
+        let formats: Vec<FormatInfo> = json!([
+            { "format_id": "248", "ext": "webm", "vcodec": "vp09", "acodec": "none", "height": 1080, "fps": 30, "tbr": 3000.0 },
+            { "format_id": "248-mp4", "ext": "mp4", "vcodec": "vp09", "acodec": "none", "height": 1080, "fps": 30, "tbr": 3000.0 },
+            { "format_id": "251", "ext": "webm", "vcodec": "none", "acodec": "opus", "abr": 130.0 }
+        ])
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(parse_format)
+        .collect();
+
+        let options = build_format_options(&formats, &settings);
+        let video_rows: Vec<&FormatOption> = options
+            .iter()
+            .filter(|option| option.kind == FormatOptionKind::VideoWithAudio)
+            .collect();
+        assert_eq!(video_rows.len(), 2, "both renditions stay selectable");
+        assert_eq!(video_rows[0].container, "webm");
+        assert_eq!(video_rows[0].video_format_id.as_deref(), Some("248"));
     }
 
     #[test]

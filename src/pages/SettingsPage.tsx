@@ -1015,7 +1015,7 @@ function YoutubeSection({
             className="w-full"
             value={settings.videoCodecPreference}
             options={[
-              { value: "auto", label: "自动", description: "由 yt-dlp 决定" },
+              { value: "auto", label: "自动", description: "AV1 → VP9 → H.264" },
               { value: "av1", label: "AV1", description: "体积最小，老设备可能无法硬解" },
               { value: "vp9", label: "VP9", description: "WebM 常用，兼容性较好" },
               { value: "h264", label: "H.264", description: "兼容性最好，码率略高" },

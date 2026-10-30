@@ -33,6 +33,9 @@ const DOWNLOAD_DIR = arg("dir", "E:\\下载");
 const COOKIES = arg("cookies", "browser");
 /** Which browser the cookie test targets; a browser that is not installed fails reliably. */
 const BROWSER = arg("browser", "edge");
+/** When set, the run takes the application's default row and asserts the output codec. */
+const EXPECT_VCODEC = arg("expect-vcodec", "");
+const EXPECT_ACODEC = arg("expect-acodec", "");
 /** A development build legitimately resolves the runtime at E:\FFMPEG. */
 const ALLOW_DEV_RUNTIME = process.argv.includes("--allow-dev-runtime");
 const DEV_RUNTIME_BIN = "E:\\FFMPEG\\bin";
@@ -221,13 +224,15 @@ async function main() {
     // Pick the smallest offered option to keep the test short, then wait for the
     // download button to become actionable (it stays disabled until a format is
     // selected and the runtime is reported complete).
+    // With --expect-vcodec the run validates the application's *default* choice instead,
+    // so the first (recommended) row is used.
     const titles = await page.locator('[role="radio"]').allInnerTexts();
     const videos = titles.filter((text) => /p\b|p\d|1080|720|480|360|240|144/.test(text));
-    const smallest = videos.at(-1) ?? titles.at(-1);
-    if (smallest) {
-      const index = titles.indexOf(smallest);
+    const chosen = EXPECT_VCODEC ? (videos[0] ?? titles[0]) : (videos.at(-1) ?? titles.at(-1));
+    if (chosen) {
+      const index = titles.indexOf(chosen);
       await page.locator('[role="radio"]').nth(index).click();
-      console.log(`  已选择格式：${smallest.split("\n")[0]}`);
+      console.log(`  已选择格式：${chosen.split("\n")[0]}`);
     }
 
     const startButton = page.getByRole("button", { name: /^开始下载/ }).first();
@@ -345,6 +350,24 @@ async function main() {
             "ffprobe 校验：时长正常",
             `${Number(facts.format?.duration ?? 0).toFixed(1)} 秒`,
           );
+          // Proves the stream was copied, not re-encoded: the codec must still be the one
+          // yt-dlp downloaded.
+          if (EXPECT_VCODEC) {
+            const video = (facts.streams ?? []).find((stream) => stream.codec_type === "video");
+            record(
+              video?.codec_name === EXPECT_VCODEC,
+              `ffprobe 校验：视频编码为 ${EXPECT_VCODEC}（未重新编码）`,
+              video?.codec_name ?? "(未找到)",
+            );
+          }
+          if (EXPECT_ACODEC) {
+            const audio = (facts.streams ?? []).find((stream) => stream.codec_type === "audio");
+            record(
+              audio?.codec_name === EXPECT_ACODEC,
+              `ffprobe 校验：音频编码为 ${EXPECT_ACODEC}（未重新编码）`,
+              audio?.codec_name ?? "(未找到)",
+            );
+          }
         }
       }
     } else {

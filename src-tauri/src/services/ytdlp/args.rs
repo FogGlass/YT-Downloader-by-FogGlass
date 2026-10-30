@@ -13,6 +13,17 @@ use crate::runtime::ToolSet;
 
 use super::progress::{POSTPROCESS_TEMPLATE, PROGRESS_TEMPLATE};
 
+/// yt-dlp's sort order, mirroring the application's own row ordering.
+///
+/// It only matters when yt-dlp has to resolve a *selector* (`bv*[height<=1080]+ba` on a
+/// retry, for instance): an explicit `format_id` pair such as `248+251` bypasses sorting
+/// completely, so a manually chosen row is never re-ordered. The field order is the point —
+/// resolution, frame rate and HDR come before the codec, so preferring AV1 can never trade
+/// away quality. `acodec:opus` must precede `ext:webm`: verified against yt-dlp 2026.10.26,
+/// the other order lets the WebM preference pick an AAC track.
+pub const FORMAT_SORT: &str =
+    "res,fps,hdr,vcodec:av01,vcodec:vp9,vcodec:avc1,acodec:opus,ext:webm";
+
 /// Arguments shared by every yt-dlp invocation: transport, cookies and limits.
 fn transport_args(settings: &AppSettings, roots: &DataRoots) -> Vec<String> {
     let mut args: Vec<String> = Vec::new();
@@ -330,6 +341,10 @@ pub fn stream_args(
 
     args.push("--format".into());
     args.push(stream.format_id.clone());
+
+    // Only affects selector expressions, not explicit format ids (see FORMAT_SORT).
+    args.push("--format-sort".into());
+    args.push(FORMAT_SORT.into());
 
     args.push("--output".into());
     args.push(format!("{}.%(ext)s", stream.output_prefix));
@@ -682,6 +697,41 @@ mod tests {
 
         let preview = crate::process::render_preview(&PathBuf::from("yt-dlp.exe"), &args);
         assert!(!preview.contains("cookies.txt"));
+    }
+
+    #[test]
+    fn the_codec_sort_order_is_passed_and_keeps_quality_first() {
+        let args = stream_args(
+            &settings(),
+            &roots(),
+            &tools(),
+            &StreamSpec {
+                role: StreamRole::Single,
+                format_id: "bv*+ba/b".into(),
+                output_prefix: r"E:\out\clip".into(),
+            },
+            "https://youtu.be/x",
+            false,
+        );
+
+        let index = args
+            .iter()
+            .position(|arg| arg == "--format-sort")
+            .expect("--format-sort is always present");
+        assert_eq!(args[index + 1], FORMAT_SORT);
+
+        // Resolution, frame rate and HDR must be compared before the codec, otherwise
+        // "prefer AV1" could downgrade the picture.
+        let fields: Vec<&str> = FORMAT_SORT.split(',').collect();
+        let position = |field: &str| fields.iter().position(|item| *item == field).unwrap();
+        assert!(position("res") < position("vcodec:av01"));
+        assert!(position("fps") < position("vcodec:av01"));
+        assert!(position("hdr") < position("vcodec:av01"));
+        assert!(position("vcodec:av01") < position("vcodec:vp9"));
+        assert!(position("vcodec:vp9") < position("vcodec:avc1"));
+        // Opus has to be preferred before the container preference, otherwise yt-dlp's
+        // ext:webm rule can pull in an AAC track (verified against 2026.10.26).
+        assert!(position("acodec:opus") < position("ext:webm"));
     }
 
     #[test]
