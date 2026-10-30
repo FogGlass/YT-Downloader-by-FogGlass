@@ -94,6 +94,11 @@ export function useKeyboardShortcuts(): void {
  *
  * The feature is opt-in (Settings → General) and never starts a download by itself:
  * it only offers the detected link.
+ *
+ * Nothing is read before the user has interacted with the window. WebView2 asks for the
+ * clipboard permission the first time a page reads it, and reading during boot put that
+ * system dialog in front of the app before the user had touched anything — a dialog that
+ * also covered the sidebar and the task card underneath.
  */
 export function useClipboardWatcher(): void {
   const enabled = useSettingsStore(
@@ -106,8 +111,10 @@ export function useClipboardWatcher(): void {
     }
 
     let lastSeen = "";
+    let armed = false;
+
     const check = async () => {
-      if (document.visibilityState !== "visible") {
+      if (!armed || document.visibilityState !== "visible" || !document.hasFocus()) {
         return;
       }
       try {
@@ -126,8 +133,22 @@ export function useClipboardWatcher(): void {
       }
     };
 
+    // Capture so a handler that stops propagation cannot hide the user's first gesture.
+    const arm = () => {
+      if (armed) {
+        return;
+      }
+      armed = true;
+      void check();
+    };
+    window.addEventListener("pointerdown", arm, { once: true, capture: true });
+    window.addEventListener("keydown", arm, { once: true, capture: true });
+
     const timer = window.setInterval(check, 1800);
-    void check();
-    return () => window.clearInterval(timer);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pointerdown", arm, true);
+      window.removeEventListener("keydown", arm, true);
+    };
   }, [enabled]);
 }

@@ -35,7 +35,9 @@ export function AppShell({
                 when the user disables it or the OS asks for reduced motion. */}
             {ambient ? <div className="ambient" aria-hidden /> : null}
 
-            <div className={cn("relative z-10 h-full overflow-y-auto")}>
+            {/* `overflow-x-hidden` is a guard, not a layout: sub-pixel rounding at fractional
+                DPI can otherwise surface a stray 1px horizontal scrollbar during a resize. */}
+            <div className={cn("relative z-10 h-full overflow-y-auto overflow-x-hidden")}>
               <AnimatePresence mode="wait" initial={false}>
                 <motion.div
                   key={page}
@@ -43,7 +45,9 @@ export function AppShell({
                   initial="initial"
                   animate="animate"
                   exit="exit"
-                  className="mx-auto flex h-full w-full max-w-[92rem] flex-col px-6 py-5"
+                  // 120rem (1920px) only caps ultra-wide monitors: a maximised 1080p window
+                  // fills edge to edge instead of leaving 200px bands on both sides.
+                  className="mx-auto flex h-full w-full max-w-[120rem] flex-col px-6 py-5"
                 >
                   {pages[page]}
                 </motion.div>

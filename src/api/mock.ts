@@ -34,7 +34,7 @@ const now = () => new Date().toISOString().slice(0, 19).replace("T", " ");
 const DEFAULT_SETTINGS: AppSettings = {
   general: {
     confirmBeforeExit: false,
-    watchClipboard: true,
+    watchClipboard: false,
     notifyOnComplete: true,
     restoreLastPage: true,
     lastPage: "home",

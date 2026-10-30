@@ -67,7 +67,10 @@ export function Badge({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-[0.1875rem] text-micro font-medium tracking-[0.01em]",
+        // `shrink-0`/`whitespace-nowrap` keep a short status word on one line: inside a row
+        // with a truncating title, flex would otherwise squeeze the badge and wrap "已完成"
+        // onto two lines, which made the rows different heights.
+        "inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-[0.1875rem] text-micro font-medium tracking-[0.01em] whitespace-nowrap",
         BADGE_TONES[tone],
         className,
       )}

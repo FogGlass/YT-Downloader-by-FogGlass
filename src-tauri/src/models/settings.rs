@@ -83,6 +83,8 @@ pub enum AudioCodecPreference {
 #[serde(rename_all = "camelCase", default)]
 pub struct GeneralSettings {
     pub confirm_before_exit: bool,
+    /// Clipboard watching is opt-in: reading the clipboard makes WebView2 ask for the
+    /// clipboard permission, and a prompt during the first start is intrusive.
     pub watch_clipboard: bool,
     pub notify_on_complete: bool,
     pub restore_last_page: bool,
@@ -93,7 +95,7 @@ impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
             confirm_before_exit: false,
-            watch_clipboard: true,
+            watch_clipboard: false,
             notify_on_complete: true,
             restore_last_page: true,
             last_page: "home".into(),

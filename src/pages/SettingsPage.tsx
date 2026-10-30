@@ -676,7 +676,7 @@ function GeneralSection({
 
       <SettingRow
         title="监视剪贴板"
-        description="复制视频链接后自动填入新建下载页的输入框，仍需手动解析。"
+        description="复制视频链接后自动填入新建下载页的输入框，仍需手动解析。默认关闭；开启后首次读取时 Windows 会请求剪贴板权限。"
       >
         <Switch
           label="监视剪贴板"
