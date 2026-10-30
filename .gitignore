@@ -37,3 +37,6 @@ Thumbs.db
 desktop.ini
 .env
 .env.local
+
+# Local probe/verification output.
+.caches/
