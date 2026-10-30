@@ -1,4 +1,4 @@
-﻿# Shared environment for every build/test command in this project.
+# Shared environment for every build/test command in this project.
 #
 # Why this file exists:
 #   * The Rust toolchain lives on C: and is only ever read, never written. Pointing
@@ -19,7 +19,7 @@ $script:Project = Join-Path $script:Workspace 'YTDownloader'
 $script:Caches = Join-Path $script:Workspace '.caches'
 $script:Toolchain = 'C:\Users\FogGlass\.rustup\toolchains\stable-x86_64-pc-windows-msvc'
 $script:Python = 'E:\Python\python.exe'
-$script:RuntimeBin = 'E:\FFMPEG-9.0\bin'
+$script:RuntimeBin = Join-Path $script:Project 'runtime\FFMPEG-9.0\bin'
 
 foreach ($dir in @($script:Caches, (Join-Path $script:Caches 'temp'), (Join-Path $script:Caches 'npm'), (Join-Path $script:Caches 'cargo'))) {
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }

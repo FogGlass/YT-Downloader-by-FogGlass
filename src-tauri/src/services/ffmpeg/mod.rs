@@ -298,11 +298,11 @@ mod tests {
 
     fn tools() -> ToolSet {
         ToolSet {
-            bin_dir: PathBuf::from(r"E:\FFMPEG-9.0\bin"),
+            bin_dir: PathBuf::from(r"E:\FFMPEG\bin"),
             source: crate::runtime::RuntimeSource::Development,
             yt_dlp_exe: None,
-            ffmpeg: Some(PathBuf::from(r"E:\FFMPEG-9.0\bin\ffmpeg.exe")),
-            ffprobe: Some(PathBuf::from(r"E:\FFMPEG-9.0\bin\ffprobe.exe")),
+            ffmpeg: Some(PathBuf::from(r"E:\FFMPEG\bin\ffmpeg.exe")),
+            ffprobe: Some(PathBuf::from(r"E:\FFMPEG\bin\ffprobe.exe")),
             launcher: crate::runtime::YtDlpLauncher::Executable(PathBuf::from("yt-dlp.exe")),
         }
     }

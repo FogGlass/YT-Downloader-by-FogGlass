@@ -10,9 +10,9 @@
     be regenerated: node_modules, Rust target, dist, the assembled release folder, caches,
     logs and temporary test output.
 
-    The payload/runtime binaries are deliberately absent: FFmpeg and yt-dlp are an external
-    runtime (E:\FFMPEG-9.0 during development) that the build copies into the release, and
-    the installer payload is generated from that release folder.
+    The payload/runtime binaries are deliberately absent: FFmpeg and yt-dlp live in
+    runtime\FFMPEG-9.0 (git-ignored, copied into the release by the build), and the
+    installer payload is generated from that release folder.
 
 .PARAMETER OutputPath
     Target .zip. Defaults to <workspace>\YTDownloader-source-<version>-<yyyyMMdd>.zip.

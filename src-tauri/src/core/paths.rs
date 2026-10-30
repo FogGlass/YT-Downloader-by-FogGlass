@@ -4,9 +4,10 @@
 //!
 //! 1. Nothing is ever written outside the application directory. There is no
 //!    `%LOCALAPPDATA%` fallback, no registry, no hidden cache on the system drive.
-//! 2. The media toolchain is looked up only in the two sanctioned locations: the
-//!    development runtime (`E:\FFMPEG-9.0`) and the runtime shipped next to the
-//!    executable (`<app>\runtime\FFMPEG-9.0`). `PATH` is never consulted.
+//! 2. The media toolchain is looked up only in the sanctioned locations: the runtime
+//!    shipped next to the executable (`<app>\runtime\FFMPEG-9.0`), the copy kept inside the
+//!    project (`<project>\runtime\FFMPEG-9.0`, used by debug builds), and the development
+//!    tree on `E:\FFMPEG`. `PATH` is never consulted.
 
 use std::path::{Path, PathBuf};
 
@@ -14,8 +15,8 @@ use serde::{Deserialize, Serialize};
 
 use super::error::{AppError, AppResult};
 
-/// The development runtime mandated for this project.
-pub const DEV_RUNTIME_BIN: &str = r"E:\FFMPEG-9.0\bin";
+/// The development tree used by this machine, when it exists.
+pub const DEV_RUNTIME_BIN: &str = r"E:\FFMPEG\bin";
 
 /// Directory name of the runtime bundle shipped with a release build.
 pub const BUNDLED_RUNTIME_REL: &str = r"runtime\FFMPEG-9.0\bin";
@@ -112,7 +113,8 @@ pub fn application_dir() -> AppResult<PathBuf> {
 /// Candidate runtime directories, most specific first.
 ///
 /// `override_dir` comes from user settings and is honoured verbatim when present;
-/// auto-discovery then tries the bundled runtime and finally the development one.
+/// auto-discovery then tries the bundled runtime, the copy kept inside the project (debug
+/// builds) and finally the development tree.
 pub fn runtime_candidates(override_dir: Option<&Path>) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
@@ -127,19 +129,22 @@ pub fn runtime_candidates(override_dir: Option<&Path>) -> Vec<PathBuf> {
         candidates.push(app_dir.join("runtime").join("FFMPEG-9.0").join("bin"));
     }
 
-    candidates.push(PathBuf::from(DEV_RUNTIME_BIN));
-
+    // The project's own copy wins over the machine-wide development tree: a debug build
+    // must exercise exactly the binaries that a release build would ship.
     if cfg!(debug_assertions) {
         let project = project_root();
         candidates.push(project.join(BUNDLED_RUNTIME_REL));
     }
 
+    candidates.push(PathBuf::from(DEV_RUNTIME_BIN));
+
     candidates.dedup();
     candidates
 }
 
-/// Accept either a runtime root (`E:\FFMPEG-9.0`), its `bin` folder or a bare
-/// directory of executables and normalise it to the folder holding the binaries.
+/// Accept either a runtime root (`<project>\runtime\FFMPEG-9.0` or `E:\FFMPEG`), its
+/// `bin` folder or a bare directory of executables and normalise it to the folder holding
+/// the binaries.
 pub fn normalise_bin_dir(dir: &Path) -> PathBuf {
     if dir.join("ffmpeg.exe").is_file() || dir.join("yt-dlp.exe").is_file() {
         return dir.to_path_buf();

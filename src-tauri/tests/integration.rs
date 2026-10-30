@@ -156,7 +156,7 @@ fn the_mandated_runtime_is_discovered() {
     assert!(
         tools.bin_dir.to_string_lossy().eq_ignore_ascii_case(DEV_RUNTIME_BIN)
             || tools.bin_dir.join("ffmpeg.exe").is_file(),
-        "runtime folder should be the mandated E:\\FFMPEG-9.0 (or a bundled runtime): {}",
+        "runtime folder should be the project copy (runtime\\FFMPEG-9.0), E:\\FFMPEG or a bundled runtime: {}",
         tools.bin_dir.display()
     );
     assert!(tools.ffmpeg.is_some(), "ffmpeg.exe must be found");

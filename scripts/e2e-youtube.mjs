@@ -33,9 +33,9 @@ const DOWNLOAD_DIR = arg("dir", "E:\\下载");
 const COOKIES = arg("cookies", "browser");
 /** Which browser the cookie test targets; a browser that is not installed fails reliably. */
 const BROWSER = arg("browser", "edge");
-/** A development build legitimately resolves the runtime at E:\FFMPEG-9.0. */
+/** A development build legitimately resolves the runtime at E:\FFMPEG. */
 const ALLOW_DEV_RUNTIME = process.argv.includes("--allow-dev-runtime");
-const DEV_RUNTIME_BIN = "E:\\FFMPEG-9.0\\bin";
+const DEV_RUNTIME_BIN = "E:\\FFMPEG\\bin";
 const CDP_PORT = 9444;
 const APP_DIR = path.dirname(EXE);
 const LOG_FILE = path.join(APP_DIR, "data", "logs", "yt-downloader.log");
@@ -246,6 +246,8 @@ async function main() {
     // page text: the queue shows a "已完成" *filter label*, which is not a task state and
     // would report success the moment the page opens.
     const historyFile = path.join(APP_DIR, "data", "history", "history.json");
+    // A YouTube id pins the entry to this exact video. Direct media URLs have no id, so the
+    // newest entry after the baseline is the right one.
     const videoId = (URL_TO_TEST.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{6,})/) ?? [])[1] ?? "";
 
     // Baseline the history first: an entry left by an earlier run would otherwise be
@@ -269,7 +271,7 @@ async function main() {
     while (Date.now() < deadline) {
       const history = await readHistory();
       // Only records added after this run started count.
-      entry = history.slice(baseline).find((item) => videoId && item.url.includes(videoId)) ?? null;
+      entry = history.slice(baseline).find((item) => !videoId || item.url.includes(videoId)) ?? null;
       if (entry) {
         finalState = entry.status;
         break;
@@ -363,13 +365,13 @@ async function main() {
       record(/cookies=none/.test(log), "日志显示 Cookies 关闭时未向 yt-dlp 传入任何 Cookie 参数");
     }
     if (/source=bundled/.test(log)) {
-      record(true, "运行库来自内置 runtime（非 E:\\FFMPEG-9.0 / 非 C 盘）");
+      record(true, "运行库来自内置 runtime（非 E:\\FFMPEG / 非 C 盘）");
     } else if (/source=development/.test(log)) {
       record(
         ALLOW_DEV_RUNTIME,
         ALLOW_DEV_RUNTIME
-          ? "运行库来自开发路径 E:\\FFMPEG-9.0（开发版自检，已显式允许）"
-          : "运行库来自开发路径（E:\\FFMPEG-9.0），不应出现在生产版本中",
+          ? "运行库来自开发路径 E:\\FFMPEG（开发版自检，已显式允许）"
+          : "运行库来自开发路径（E:\\FFMPEG），不应出现在生产版本中",
       );
     } else {
       record(true, "运行库自检已记录");

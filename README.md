@@ -40,15 +40,31 @@ npm install
 npm run tauri dev
 ```
 
-开发环境固定使用 `E:\FFMPEG-9.0`：
+开发环境使用项目内自带的运行库 `runtime\FFMPEG-9.0`（已被 `.gitignore` 忽略，
+需自行放入，见下方「运行库版本」）：
 
 ```
-E:\FFMPEG-9.0\bin\yt-dlp.exe
-E:\FFMPEG-9.0\bin\ffmpeg.exe
-E:\FFMPEG-9.0\bin\ffprobe.exe
+runtime\FFMPEG-9.0\bin\yt-dlp.exe
+runtime\FFMPEG-9.0\bin\ffmpeg.exe
+runtime\FFMPEG-9.0\bin\ffprobe.exe
+runtime\FFMPEG-9.0\bin\ffplay.exe
 ```
+
+`E:\FFMPEG\bin` 作为开发机的备选路径，仅在上面的项目副本不存在时才会使用。
 
 程序**不会**调用系统 PATH 中的 FFmpeg，也不会自动下载其它版本。
+
+### 运行库版本
+
+当前 `runtime\FFMPEG-9.0` 中的版本（2026-10-30 更新）：
+
+| 组件 | 版本 |
+| --- | --- |
+| yt-dlp | `2026.10.26` |
+| FFmpeg / FFprobe / FFplay | `2026-10-29-git-31ba826726-full_build`（gyan.dev） |
+
+发布时 `scripts\build.ps1` 会把整个目录原样复制到 `release\YT Downloader\runtime\FFMPEG-9.0`，
+并校验三个可执行文件确实可运行；安装包载荷同样来自这份副本，因此安装版与开发版使用同一套二进制。
 
 ### 环境变量（开发/测试）
 
@@ -182,7 +198,7 @@ node scripts\verify-release.mjs
 ```
 检查 Node / npm / cargo
    ↓
-校验 E:\FFMPEG-9.0（yt-dlp / ffmpeg / ffprobe 必须存在且非空）
+校验 runtime\FFMPEG-9.0（yt-dlp / ffmpeg / ffprobe 必须存在且非空）
    ↓
 安装前端依赖
    ↓
@@ -202,8 +218,8 @@ release\YT Downloader\
 ├── YTDownloader.exe
 ├── README.txt
 ├── runtime\FFMPEG-9.0\        ← 完整复制，不只是三个 exe
-│   ├── bin\{yt-dlp,ffmpeg,ffprobe}.exe
-│   ├── doc\  presets\  LICENSE  README.txt
+│   ├── bin\{yt-dlp,ffmpeg,ffprobe,ffplay}.exe
+│   ├── presets\  LICENSE  README.txt
 └── data\
     ├── config\  history\  favorites\  logs\  cache\  temp\  downloads\
     └── webview\               ← WebView2 用户目录（不落 %LOCALAPPDATA%）

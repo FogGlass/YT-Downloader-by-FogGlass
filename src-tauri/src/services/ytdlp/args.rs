@@ -564,13 +564,13 @@ mod tests {
 
     fn tools() -> ToolSet {
         ToolSet {
-            bin_dir: PathBuf::from(r"E:\FFMPEG-9.0\bin"),
+            bin_dir: PathBuf::from(r"E:\FFMPEG\bin"),
             source: crate::runtime::RuntimeSource::Development,
-            yt_dlp_exe: Some(PathBuf::from(r"E:\FFMPEG-9.0\bin\yt-dlp.exe")),
-            ffmpeg: Some(PathBuf::from(r"E:\FFMPEG-9.0\bin\ffmpeg.exe")),
-            ffprobe: Some(PathBuf::from(r"E:\FFMPEG-9.0\bin\ffprobe.exe")),
+            yt_dlp_exe: Some(PathBuf::from(r"E:\FFMPEG\bin\yt-dlp.exe")),
+            ffmpeg: Some(PathBuf::from(r"E:\FFMPEG\bin\ffmpeg.exe")),
+            ffprobe: Some(PathBuf::from(r"E:\FFMPEG\bin\ffprobe.exe")),
             launcher: crate::runtime::YtDlpLauncher::Executable(PathBuf::from(
-                r"E:\FFMPEG-9.0\bin\yt-dlp.exe",
+                r"E:\FFMPEG\bin\yt-dlp.exe",
             )),
         }
     }
@@ -658,7 +658,7 @@ mod tests {
     fn embedded_ffmpeg_location_points_at_the_runtime() {
         let args = probe_args(&settings(), &roots(), &tools(), "u", false);
         let index = args.iter().position(|item| item == "--ffmpeg-location").unwrap();
-        assert_eq!(args[index + 1], r"E:\FFMPEG-9.0\bin");
+        assert_eq!(args[index + 1], r"E:\FFMPEG\bin");
     }
 
     #[test]

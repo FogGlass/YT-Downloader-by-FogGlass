@@ -7,7 +7,7 @@
     that cannot actually run:
 
         1. verify Node, npm and the Rust toolchain
-        2. verify the mandated runtime at E:\FFMPEG-9.0 (yt-dlp / ffmpeg / ffprobe)
+        2. verify the runtime tree in runtime\FFMPEG-9.0 (yt-dlp / ffmpeg / ffprobe)
         3. install frontend dependencies (cache stays on E:)
         4. type-check and build the frontend
         5. build the Rust backend in release mode
@@ -49,7 +49,10 @@ Set-StrictMode -Version Latest
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Workspace = Split-Path -Parent $ProjectRoot
 $Caches = Join-Path $Workspace '.caches'
-$RuntimeSource = 'E:\FFMPEG-9.0'
+# The project keeps its own copy of the media toolchain, so a build never depends on a path
+# outside the repository. `runtime\FFMPEG-9.0` is git-ignored: put the FFmpeg build
+# (bin\ + presets\ + LICENSE) there before building — see README "快速开始".
+$RuntimeSource = Join-Path $ProjectRoot 'runtime\FFMPEG-9.0'
 $Toolchain = 'C:\Users\FogGlass\.rustup\toolchains\stable-x86_64-pc-windows-msvc'
 
 if (-not $OutputDirectory) {
@@ -343,7 +346,7 @@ data\                     所有用户数据，全部保存在此处，不写入
 说明
 ----
 * 程序只使用 runtime\ 内的运行库，不会调用系统 PATH 中的 FFmpeg；
-  开发环境下则固定使用 E:\FFMPEG-9.0。
+  开发环境下使用项目内 runtime\FFMPEG-9.0（也可用 E:\FFMPEG）。
 * 默认下载目录为 data\downloads，可随时改为任意位置。
 * 本程序不会上传 Cookie、链接、历史或任何用户文件，也不支持任何
   绕过 DRM、付费墙或访问控制的功能。
