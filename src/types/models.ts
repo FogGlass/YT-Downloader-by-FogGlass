@@ -265,6 +265,8 @@ export interface CookieFileCheck {
   exists: boolean;
   readable: boolean;
   looksLikeCookiejar: boolean;
+  /** Size on disk; 0 means the export is empty. */
+  sizeBytes: number;
   message: string;
 }
 

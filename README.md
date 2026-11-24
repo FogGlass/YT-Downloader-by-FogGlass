@@ -27,6 +27,7 @@
 | **运行库自带** | Release 内置完整 `runtime/FFMPEG-9.0`（含 presets / LICENSE），用户无需安装任何东西 |
 | **零 C 盘写入** | 数据、缓存、临时文件、WebView2 用户目录全部位于应用目录旁 |
 | **Cookie 不外泄** | Cookie 只在本机读取，永不进入日志、Toast、错误详情或命令预览 |
+| **直链同样可用** | 直链 mp4/webm 等「提取器报不出编码」的源，提供一行「原始文件」，不重新编码、不与音轨合并，不再出现"没有可用格式" |
 
 ---
 
@@ -60,8 +61,8 @@ runtime\FFMPEG-9.0\bin\ffplay.exe
 
 | 组件 | 版本 |
 | --- | --- |
-| yt-dlp | `2026.10.26` |
-| FFmpeg / FFprobe / FFplay | `2026-10-29-git-31ba826726-full_build`（gyan.dev） |
+| yt-dlp | `2026.11.23` |
+| FFmpeg / FFprobe / FFplay | `2026-11-23-git-05c674c913-full_build`（gyan.dev） |
 
 发布时 `scripts\build.ps1` 会把整个目录原样复制到 `release\YT Downloader\runtime\FFMPEG-9.0`，
 并校验三个可执行文件确实可运行；安装包载荷同样来自这份副本，因此安装版与开发版使用同一套二进制。
@@ -319,7 +320,7 @@ src/
 ## 测试
 
 ```powershell
-# Rust 单元测试（134 项）
+# Rust 单元测试（151 项）
 cd src-tauri; cargo test --lib
 
 # Rust 集成测试（真实调用 FFmpeg / yt-dlp）
@@ -377,6 +378,14 @@ Cookie 数据库，或使用了 Edge 127+ 的**应用绑定加密**——这种�
 
 **合并失败？**
 任务卡会显示「只重试合并」，点击即可仅重跑 FFmpeg，不会重新下载。
+
+**可以直接粘贴 `.mp4` / `.webm` 直链吗？**
+可以。这类链接走的是 yt-dlp 的 generic 提取器，它**报不出编码信息**（`vcodec`/`acodec`
+都是 `null`），所以应用会把它列成一行 **「原始文件」**（详情写作「编码未知 · MP4」）。
+选中后直接下载该链接指向的文件：视频流与音频流逐字节不变（实测两路数据包 MD5 与源
+文件一致），不做二次编码，也不与任何音轨合并；因为默认开启元数据嵌入，容器会被
+yt-dlp 重写一次，成品长度可能与源文件相差几十到几百字节。能识别出音频编码的直链
+（例如 `.mp3`）仍会出现在「音频」分类下。
 
 **下载到一半失败，提示 ffmpeg 退出码异常？**
 若日志里出现 `Connection to tcp://…:443 failed` 或 `Error number -138`，

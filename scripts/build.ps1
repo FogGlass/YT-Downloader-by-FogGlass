@@ -7,11 +7,11 @@
     that cannot actually run:
 
         1. verify Node, npm and the Rust toolchain
-        2. verify the runtime tree in runtime\FFMPEG-9.0 (yt-dlp / ffmpeg / ffprobe)
+        2. verify the runtime tree in runtime\FFMPEG-9.0 (yt-dlp / ffmpeg / ffprobe / ffplay)
         3. install frontend dependencies (cache stays on E:)
         4. type-check and build the frontend
         5. build the Rust backend in release mode
-        6. copy the *entire* runtime folder into the release (not just the three exes)
+        6. copy the *entire* runtime folder into the release (not just the four exes)
         7. run an integrity check over every artefact
         8. report the exact runtime versions shipped
 
@@ -182,7 +182,7 @@ if ($script:Failures.Count -gt 0) {
 
 Write-Step "校验运行库 $RuntimeSource"
 
-$requiredTools = @('yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe')
+$requiredTools = @('yt-dlp.exe', 'ffmpeg.exe', 'ffprobe.exe', 'ffplay.exe')
 $runtimeBin = Join-Path $RuntimeSource 'bin'
 $missing = @()
 
@@ -522,7 +522,8 @@ if (Test-Path $exeRelease) {
 $runtimeCheck = @(
     'runtime\FFMPEG-9.0\bin\yt-dlp.exe',
     'runtime\FFMPEG-9.0\bin\ffmpeg.exe',
-    'runtime\FFMPEG-9.0\bin\ffprobe.exe'
+    'runtime\FFMPEG-9.0\bin\ffprobe.exe',
+    'runtime\FFMPEG-9.0\bin\ffplay.exe'
 )
 foreach ($relative in $runtimeCheck) {
     $path = Join-Path $releaseRoot $relative
@@ -541,6 +542,11 @@ else { Write-Warn '内置 yt-dlp 未能执行（在受限环境中属正常，�
 $ffmpegVersion = Get-ToolVersion $shippedFfmpeg @('-hide_banner', '-version')
 if ($ffmpegVersion) { Write-Ok "内置 FFmpeg 可执行：$(($ffmpegVersion -split ' ')[2])" }
 else { Write-Warn '内置 FFmpeg 未能执行' }
+
+$shippedFfplay = Join-Path $releaseRoot 'runtime\FFMPEG-9.0\bin\ffplay.exe'
+$ffplayVersion = Get-ToolVersion $shippedFfplay @('-hide_banner', '-version')
+if ($ffplayVersion) { Write-Ok "内置 FFplay 可执行：$(($ffplayVersion -split ' ')[2])" }
+else { Write-Warn '内置 FFplay 未能执行' }
 
 $dataDirs = @('data\config', 'data\history', 'data\favorites', 'data\logs', 'data\temp', 'data\downloads')
 foreach ($relative in $dataDirs) {

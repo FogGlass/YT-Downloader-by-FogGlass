@@ -242,8 +242,16 @@ pub fn cookie_status(state: State<'_, AppState>) -> CookieStatus {
     }
 }
 
+/// How much of the file is read to recognise its format. A cookiejar is a text list whose
+/// header sits on the first line, so reading the whole file would only add risk.
+const COOKIE_SNIFF_BYTES: u64 = 64 * 1024;
+
 /// Cookiejar export is a user action; the file path is validated so the UI can explain
 /// a mistake before a download is attempted.
+///
+/// Only enough of the file is read to recognise the format. Cookie values are never
+/// copied into the response, the log or anywhere else: the check answers "is this a
+/// cookies.txt", not "what is in it".
 #[tauri::command]
 pub fn validate_cookie_file(path: String) -> CookieFileCheck {
     let trimmed = path.trim().to_string();
@@ -253,41 +261,103 @@ pub fn validate_cookie_file(path: String) -> CookieFileCheck {
             exists: false,
             readable: false,
             looks_like_cookiejar: false,
+            size_bytes: 0,
             message: "尚未选择 cookies.txt。".into(),
         };
     }
 
     let file = PathBuf::from(&trimmed);
-    if !file.is_file() {
+    let metadata = match std::fs::metadata(&file) {
+        Ok(metadata) if metadata.is_file() => metadata,
+        _ => {
+            return CookieFileCheck {
+                path: trimmed,
+                exists: false,
+                readable: false,
+                looks_like_cookiejar: false,
+                size_bytes: 0,
+                message: "文件不存在。".into(),
+            }
+        }
+    };
+
+    let size_bytes = metadata.len();
+    if size_bytes == 0 {
         return CookieFileCheck {
             path: trimmed,
-            exists: false,
-            readable: false,
+            exists: true,
+            readable: true,
             looks_like_cookiejar: false,
-            message: "文件不存在。".into(),
+            size_bytes,
+            message: "文件为空（0 字节），请重新从浏览器导出 cookies.txt。".into(),
         };
     }
 
-    // Only the Netscape header is inspected — never the cookie rows themselves.
-    let header_ok = std::fs::read_to_string(&file)
-        .map(|text| {
-            text.lines()
-                .take(6)
-                .any(|line| line.contains("Netscape HTTP Cookie File") || line.contains("#HttpOnly_"))
-        })
-        .unwrap_or(false);
+    let head = read_head(&file);
+    let Some(head) = head else {
+        return CookieFileCheck {
+            path: trimmed,
+            exists: true,
+            readable: false,
+            looks_like_cookiejar: false,
+            size_bytes,
+            message: "文件存在，但无法读取（可能正被其他程序占用，或没有读取权限）。".into(),
+        };
+    };
 
+    let looks_like_cookiejar = looks_like_netscape_cookiejar(&head);
     CookieFileCheck {
         path: trimmed,
         exists: true,
         readable: true,
-        looks_like_cookiejar: header_ok,
-        message: if header_ok {
+        looks_like_cookiejar,
+        size_bytes,
+        message: if looks_like_cookiejar {
             "已识别为 Netscape 格式的 cookies.txt。".into()
         } else {
             "文件存在，但不像 Netscape 格式的 cookies.txt（请使用浏览器扩展导出的格式）。".into()
         },
     }
+}
+
+/// Read the first [`COOKIE_SNIFF_BYTES`] of the file, or `None` when it cannot be opened.
+fn read_head(path: &Path) -> Option<Vec<u8>> {
+    use std::io::Read;
+
+    let file = std::fs::File::open(path).ok()?;
+    let mut buffer = Vec::new();
+    file.take(COOKIE_SNIFF_BYTES).read_to_end(&mut buffer).ok()?;
+    Some(buffer)
+}
+
+/// Does this head look like a Netscape cookie file?
+///
+/// Two shapes are accepted, because both are really the same format:
+/// * a comment header (`# Netscape HTTP Cookie File` is what the yt-dlp docs and most
+///   extensions write; `# HTTP Cookie File` is what older curl-style exporters write);
+/// * at least one well-formed row of seven tab-separated fields, which is what a
+///   header-less export still looks like. `#HttpOnly_` rows count as rows, not comments.
+fn looks_like_netscape_cookiejar(head: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(head);
+    let mut rows = 0usize;
+
+    for line in text.lines().take(64) {
+        let line = line.trim_start_matches('\u{feff}').trim_end_matches('\r').trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with("# Netscape HTTP Cookie File")
+            || line.starts_with("# HTTP Cookie File")
+            || line.starts_with("#HttpOnly_")
+        {
+            return true;
+        }
+        if !line.starts_with('#') && line.split('\t').count() == 7 {
+            rows += 1;
+        }
+    }
+
+    rows > 0
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -297,6 +367,8 @@ pub struct CookieFileCheck {
     pub exists: bool,
     pub readable: bool,
     pub looks_like_cookiejar: bool,
+    /// Size on disk, so the UI can say "0 字节" instead of guessing.
+    pub size_bytes: u64,
     pub message: String,
 }
 
@@ -501,10 +573,77 @@ mod tests {
 
         let check = validate_cookie_file(file.to_string_lossy().to_string());
         assert!(check.exists && check.readable && check.looks_like_cookiejar);
+        assert!(check.size_bytes > 0);
 
         std::fs::write(&file, "not a cookiejar").unwrap();
         let check = validate_cookie_file(file.to_string_lossy().to_string());
         assert!(check.exists && !check.looks_like_cookiejar);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An empty export is the most common mistake: the extension writes the file, the user
+    /// forgets to be logged in, and every download then fails with "no cookies".
+    #[test]
+    fn an_empty_cookie_file_is_named_as_empty() {
+        let dir = std::env::temp_dir().join("ytd-cookie-empty-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("cookies.txt");
+        std::fs::write(&file, "").unwrap();
+
+        let check = validate_cookie_file(file.to_string_lossy().to_string());
+        assert!(check.exists && check.readable);
+        assert!(!check.looks_like_cookiejar);
+        assert_eq!(check.size_bytes, 0);
+        assert!(check.message.contains("文件为空"), "got {}", check.message);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Both header spellings are the same format, and a header-less export is still full of
+    /// well-formed rows; all three have to be accepted or a valid file gets rejected.
+    #[test]
+    fn every_netscape_spelling_is_accepted() {
+        let dir = std::env::temp_dir().join("ytd-cookie-headers-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("cookies.txt");
+
+        for (name, text) in [
+            ("curl style", "# HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tA\tB\n"),
+            (
+                "utf-8 bom",
+                "\u{feff}# Netscape HTTP Cookie File\n.example.com\tTRUE\t/\tFALSE\t0\tA\tB\n",
+            ),
+            (
+                "no header",
+                ".example.com\tTRUE\t/\tFALSE\t0\tA\tB\n\
+                 .example.org\tTRUE\t/\tFALSE\t0\tC\tD\n",
+            ),
+            (
+                "httponly row",
+                "#HttpOnly_.example.com\tTRUE\t/\tFALSE\t0\tA\tB\n",
+            ),
+        ] {
+            std::fs::write(&file, text).unwrap();
+            let check = validate_cookie_file(file.to_string_lossy().to_string());
+            assert!(
+                check.looks_like_cookiejar,
+                "{name} should be recognised, got {}",
+                check.message
+            );
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_directory_path_is_not_a_cookie_file() {
+        let dir = std::env::temp_dir().join("ytd-cookie-dir-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let check = validate_cookie_file(dir.to_string_lossy().to_string());
+        assert!(!check.exists && !check.readable);
 
         let _ = std::fs::remove_dir_all(&dir);
     }

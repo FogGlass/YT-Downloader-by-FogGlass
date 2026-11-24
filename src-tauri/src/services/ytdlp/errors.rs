@@ -134,6 +134,25 @@ const RULES: &[Rule] = &[
             "或直接使用下面的「不使用 Cookie 重试」。",
         ),
     },
+    // A cookies.txt that is not a cookiejar at all is a configuration mistake, not a
+    // network or login problem, and yt-dlp says so plainly — surface that instead of a
+    // bare exit code. Only the file mode can produce this.
+    Rule {
+        kind: FailureKind::Cookie,
+        needles: &[
+            "does not look like a netscape format cookies file",
+            "not a netscape format cookiejar",
+            "invalid cookie file",
+        ],
+        summary: "cookies.txt 不是 Netscape 格式",
+        hint: concat!(
+            "文件模式的 cookies.txt 无法被 yt-dlp 读取。\n",
+            "请用浏览器插件 Get cookies.txt LOCALLY 重新导出（登录 YouTube → 打开页面 → 导出 Netscape 格式），",
+            "不要手工另存、改名或粘贴内容。\n",
+            "导出后在「设置 → Cookies」重新点击「选择 cookies.txt」选中新文件；",
+            "也可以暂时切换为「不使用」继续下载。",
+        ),
+    },
     Rule {
         kind: FailureKind::Cookie,
         needles: &[
@@ -381,6 +400,28 @@ mod tests {
         assert!(
             hint.contains("不使用 Cookie 重试"),
             "the hint must offer a way forward: {hint}"
+        );
+    }
+
+    #[test]
+    fn a_malformed_cookies_txt_is_reported_as_a_format_problem() {
+        // yt-dlp 2026.11.23 wording when --cookies points at something that is not a
+        // cookiejar. A user in file mode must be told to re-export, not to check whether
+        // they are logged in.
+        let error = from_outcome(&outcome(
+            &["ERROR: '/tmp/cookies.txt' does not look like a Netscape format cookies file"],
+            Some(1),
+        ));
+        assert_eq!(error.kind, "cookie");
+        assert_eq!(error.summary, "cookies.txt 不是 Netscape 格式");
+        let hint = error.hint.unwrap();
+        assert!(
+            hint.contains("Get cookies.txt LOCALLY"),
+            "the hint must name the supported extension: {hint}"
+        );
+        assert!(
+            hint.contains("设置 → Cookies"),
+            "the hint must say where to re-select the file: {hint}"
         );
     }
 

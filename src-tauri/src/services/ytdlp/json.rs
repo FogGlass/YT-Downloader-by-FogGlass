@@ -506,6 +506,68 @@ pub fn build_format_options(formats: &[FormatInfo], settings: &AppSettings) -> V
         });
     }
 
+    // Some extractors cannot report codec information at all. The generic extractor is
+    // the one that matters here: a direct `.mp4` or `.webm` link arrives with `vcodec`
+    // and `acodec` both null, so it is neither progressive (both known), nor video-only
+    // nor audio-only (one known) — without this branch the selector stays empty and the
+    // link cannot be downloaded at all.
+    //
+    // The file itself is complete as-is, so it becomes a single "original file" row: the
+    // download is a plain byte copy, no stream pairing and no remux decision to make.
+    let mut opaque: Vec<&FormatInfo> = formats
+        .iter()
+        .filter(|item| !item.has_video() && !item.has_audio() && !item.is_drm())
+        .collect();
+    // Several renditions of the same container describe the same kind of file; keep the
+    // largest one, mirroring the deduplication applied to the known-codec streams.
+    opaque.sort_by(|left, right| {
+        right
+            .size_estimate()
+            .unwrap_or(0)
+            .cmp(&left.size_estimate().unwrap_or(0))
+    });
+    let mut seen_opaque: Vec<String> = Vec::new();
+    for format in opaque {
+        let container = format.ext.to_ascii_lowercase();
+        if seen_opaque.contains(&container) {
+            continue;
+        }
+        seen_opaque.push(container.clone());
+
+        // An extractor that reports no codec may also report no format id; `b` (best)
+        // selects the only available format without inventing an id.
+        let selector = exact_selector(&format.format_id);
+
+        let mut detail_parts: Vec<String> = vec!["编码未知".into(), container.to_ascii_uppercase()];
+        if let Some(bitrate) = human_bitrate(kbps_to_mbps(format.tbr)) {
+            detail_parts.push(bitrate);
+        }
+
+        options.push(FormatOption {
+            id: selector.clone(),
+            kind: FormatOptionKind::Progressive,
+            label: opaque_label(format),
+            detail: detail_parts.join(" · "),
+            height: format.height,
+            width: format.width,
+            fps: format.fps,
+            video_codec: None,
+            audio_codec: None,
+            container,
+            hdr: false,
+            dynamic_range: format.dynamic_range.clone(),
+            video_format_id: None,
+            audio_format_id: None,
+            single_format_id: Some(selector),
+            bitrate_mbps: kbps_to_mbps(format.tbr),
+            size_bytes: format.size_estimate(),
+            audio_bitrate: None,
+            recommended: false,
+            available: true,
+            note: Some("单文件".into()),
+        });
+    }
+
     for audio in &audios {
         let mut detail_parts = Vec::new();
         if let Some(codec) = audio.audio_codec_label() {
@@ -565,6 +627,42 @@ fn resolution_label(format: &FormatInfo) -> String {
         Some(fps) if fps >= 50.0 => format!("{base}{}", fps.round() as u32),
         _ => base,
     }
+}
+
+/// The headline for a row whose codecs the extractor could not identify.
+///
+/// "原始文件" says what the user gets: the bytes served at the link, untouched. A known
+/// height still earns its place in front of it, because that is how every other row is
+/// read at a glance.
+fn opaque_label(format: &FormatInfo) -> String {
+    match format.height.filter(|height| *height > 0) {
+        Some(height) => format!("{height}p 原始文件"),
+        None => "原始文件".into(),
+    }
+}
+
+/// Tokens yt-dlp reads as something other than a format id.
+///
+/// A bare `-f mp4` is "the best pre-merged mp4", not the format whose id is literally
+/// `mp4`, and `-f best` is a keyword. Generic extraction produces exactly these ids
+/// (the file's own extension), so they have to be pinned with an explicit filter or
+/// the download could resolve to a different row than the one the user picked.
+const SELECTOR_KEYWORDS: &[&str] = &[
+    "3gp", "aac", "alac", "all", "asf", "audio", "avi", "ba", "best", "bv", "bv*", "divx", "f4v",
+    "flv", "gif", "m4a", "m4v", "mergeall", "mkv", "mov", "mp3", "mp4", "mpeg", "mpg", "ogg",
+    "ogv", "opus", "rm", "ts", "video", "vob", "wav", "webm", "wmv", "worst", "w",
+];
+
+/// Turn a probe's format id into a `-f` expression that selects that exact format.
+fn exact_selector(format_id: &str) -> String {
+    let id = format_id.trim();
+    if id.is_empty() {
+        return "b".into();
+    }
+    if SELECTOR_KEYWORDS.contains(&id.to_ascii_lowercase().as_str()) {
+        return format!("all[format_id={id}]");
+    }
+    id.to_string()
 }
 
 /// Order the rows the way the application should offer them.
@@ -1079,5 +1177,121 @@ mod tests {
         assert!(probe.formats.is_empty());
         assert!(probe.options.is_empty());
         assert_eq!(probe.webpage_url, "https://example.com/x");
+    }
+
+    /// The generic extractor's report for a direct `.mp4` link: one format, no codecs.
+    #[test]
+    fn a_direct_media_link_still_offers_a_row() {
+        let payload = json!({
+            "_type": "video",
+            "id": "clip",
+            "title": "clip",
+            "webpage_url": "http://127.0.0.1:8791/clip.mp4",
+            "extractor_key": "Generic",
+            "formats": [
+                {
+                    "format_id": "mp4",
+                    "url": "http://127.0.0.1:8791/clip.mp4",
+                    "ext": "mp4",
+                    "vcodec": null,
+                    "acodec": null,
+                    "protocol": "http",
+                    "dynamic_range": "SDR"
+                }
+            ]
+        });
+
+        let probe = parse_probe(&payload, "http://127.0.0.1:8791/clip.mp4");
+        assert_eq!(probe.formats.len(), 1);
+        assert_eq!(probe.options.len(), 1, "the only format must stay selectable");
+
+        let option = &probe.options[0];
+        assert_eq!(option.kind, FormatOptionKind::Progressive);
+        assert_eq!(option.label, "原始文件");
+        assert_eq!(option.container, "mp4");
+        // `mp4` is a container selector to yt-dlp, so the row has to pin the exact id.
+        assert_eq!(option.id, "all[format_id=mp4]");
+        assert_eq!(option.single_format_id, Some(option.id.clone()));
+        assert!(option.video_format_id.is_none() && option.audio_format_id.is_none());
+        assert!(
+            option.detail.contains("编码未知") && option.detail.contains("MP4"),
+            "detail should explain why no codec is shown, got {}",
+            option.detail
+        );
+        assert!(option.recommended, "the only row has to be the default choice");
+    }
+
+    /// A direct `.mp3` is reported with a known audio codec, so it keeps its own row and
+    /// must not be duplicated by the opaque fallback.
+    #[test]
+    fn a_direct_audio_link_keeps_its_audio_row_only() {
+        let payload = json!({
+            "_type": "video",
+            "id": "tone",
+            "title": "tone",
+            "formats": [
+                { "format_id": "mpeg", "url": "http://127.0.0.1:8791/tone.mp3", "ext": "mp3", "vcodec": "none", "acodec": "mp3" }
+            ]
+        });
+
+        let probe = parse_probe(&payload, "http://127.0.0.1:8791/tone.mp3");
+        assert_eq!(probe.options.len(), 1);
+        assert_eq!(probe.options[0].kind, FormatOptionKind::AudioOnly);
+        assert_eq!(probe.options[0].single_format_id.as_deref(), Some("mpeg"));
+    }
+
+    #[test]
+    fn opaque_formats_are_offered_once_per_container() {
+        let payload = json!({
+            "formats": [
+                { "format_id": "small", "ext": "mp4", "filesize": 1000, "vcodec": null, "acodec": null },
+                { "format_id": "large", "ext": "mp4", "filesize": 9000, "vcodec": null, "acodec": null },
+                { "format_id": "other", "ext": "webm", "filesize": 5000, "vcodec": null, "acodec": null }
+            ]
+        });
+        let formats: Vec<FormatInfo> = payload["formats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(parse_format)
+            .collect();
+        let options = build_format_options(&formats, &AppSettings::default());
+
+        assert_eq!(options.len(), 2, "one row per container, not per rendition");
+        let mp4 = options
+            .iter()
+            .find(|option| option.container == "mp4")
+            .expect("an mp4 row");
+        assert_eq!(mp4.single_format_id.as_deref(), Some("large"));
+        assert_eq!(mp4.size_bytes, Some(9000));
+        assert!(options.iter().any(|option| option.container == "webm"));
+    }
+
+    #[test]
+    fn an_opaque_row_without_a_format_id_falls_back_to_the_best_selector() {
+        let payload = json!({
+            "formats": [ { "ext": "mkv" } ]
+        });
+        let formats: Vec<FormatInfo> = payload["formats"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(parse_format)
+            .collect();
+        let options = build_format_options(&formats, &AppSettings::default());
+        assert_eq!(options.len(), 1);
+        assert_eq!(options[0].single_format_id.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn ambiguous_format_ids_are_pinned_to_the_exact_format() {
+        // A bare `mp4` / `best` is a selector keyword, not a format id.
+        assert_eq!(exact_selector("mp4"), "all[format_id=mp4]");
+        assert_eq!(exact_selector("WEBM"), "all[format_id=WEBM]");
+        assert_eq!(exact_selector("best"), "all[format_id=best]");
+        // Ordinary ids are passed through untouched.
+        assert_eq!(exact_selector("137"), "137");
+        assert_eq!(exact_selector("hls-720"), "hls-720");
+        assert_eq!(exact_selector("  "), "b");
     }
 }

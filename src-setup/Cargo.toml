@@ -1,6 +1,6 @@
 [package]
 name = "yt-downloader-setup"
-version = "1.0.3"
+version = "1.0.4"
 description = "YT Downloader installer and uninstaller"
 authors = ["YT Downloader"]
 edition = "2021"

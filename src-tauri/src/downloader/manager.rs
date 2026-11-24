@@ -993,6 +993,17 @@ async fn prepare(manager: &Arc<DownloadManager>, id: &str) -> AppResult<RunConte
         settings.cookies.mode = crate::models::settings::CookieMode::None;
     }
 
+    // A cookies.txt that cannot be handed to yt-dlp stops the task with a reason instead of
+    // letting yt-dlp ignore the file silently and fail later as a login wall.
+    if let Some((summary, hint)) = ytdlp::cookie_file_problem(&settings) {
+        return Err(AppError::Classified {
+            kind: "cookie".into(),
+            summary,
+            hint: Some(hint),
+            detail: None,
+        });
+    }
+
     let runtime_state = manager.runtime_snapshot(id);
 
     // Probe only when the caller did not already resolve a format.

@@ -19,9 +19,9 @@ use crate::runtime::{yt_dlp_spec, ToolSet};
 use crate::{log_debug, log_info};
 
 pub use args::{
-    candidate_extensions, cookies_are_effective, fallback_format_expression, is_playlist_url,
-    probe_args, resolve_container, selection_summary,
-    split_extra_args, stream_args, thumbnail_args, StreamSpec,
+    candidate_extensions, cookie_file_is_readable, cookie_file_problem, cookies_are_effective,
+    fallback_format_expression, is_playlist_url, probe_args, resolve_container,
+    selection_summary, split_extra_args, stream_args, thumbnail_args, StreamSpec,
 };
 pub use errors::{classify, from_outcome, hint_for, salient_line, FailureKind};
 pub use json::{build_format_options, format_expression, parse_probe};
@@ -54,6 +54,19 @@ pub async fn probe(
     };
 
     let arguments = probe_args(settings, roots, tools, url, playlist);
+
+    // A cookies.txt that cannot be used has to stop the request here. yt-dlp ignores a
+    // missing cookie file without a word, so the parse would run without the login state
+    // the user asked for and then fail as an unexplained login wall.
+    if let Some((summary, hint)) = cookie_file_problem(settings) {
+        return Err(AppError::Classified {
+            kind: "cookie".into(),
+            summary,
+            hint: Some(hint),
+            detail: None,
+        });
+    }
+
     let spec = yt_dlp_spec(tools, arguments, "yt-dlp probe").with_timeout(180);
 
     let collected: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));

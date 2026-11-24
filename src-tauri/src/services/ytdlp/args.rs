@@ -19,7 +19,7 @@ use super::progress::{POSTPROCESS_TEMPLATE, PROGRESS_TEMPLATE};
 /// retry, for instance): an explicit `format_id` pair such as `248+251` bypasses sorting
 /// completely, so a manually chosen row is never re-ordered. The field order is the point —
 /// resolution, frame rate and HDR come before the codec, so preferring AV1 can never trade
-/// away quality. `acodec:opus` must precede `ext:webm`: verified against yt-dlp 2026.10.26,
+/// away quality. `acodec:opus` must precede `ext:webm`: verified against yt-dlp 2026.11.23,
 /// the other order lets the WebM preference pick an AAC track.
 pub const FORMAT_SORT: &str =
     "res,fps,hdr,vcodec:av01,vcodec:vp9,vcodec:avc1,acodec:opus,ext:webm";
@@ -556,6 +556,55 @@ pub fn cookie_file_is_readable(path: &str) -> bool {
     Path::new(path).is_file()
 }
 
+/// Why a configured cookies.txt cannot be used at all, if that is the case.
+///
+/// yt-dlp silently ignores a missing cookie file, so a stale path would turn "use my
+/// cookies" into "download without them" — and the result then looks like a YouTube login
+/// wall rather than the configuration mistake it is. Only the path is inspected here;
+/// the file's contents are never read, copied or logged.
+pub fn cookie_file_problem(settings: &AppSettings) -> Option<(String, String)> {
+    if settings.cookies.mode != CookieMode::File {
+        return None;
+    }
+
+    let path = settings.cookies.file.trim();
+    if path.is_empty() {
+        // An empty path is "no cookies", not an error: the caller passes no argument.
+        return None;
+    }
+
+    let file = Path::new(path);
+    if !file.is_file() {
+        return Some((
+            "找不到 cookies.txt：设置里保存的文件路径已不存在。".into(),
+            "请打开 设置 → Cookies，重新点击「选择 cookies.txt」；也可以暂时切换为「不使用」继续下载。"
+                .into(),
+        ));
+    }
+
+    match std::fs::metadata(file) {
+        Ok(metadata) if metadata.len() == 0 => Some((
+            "cookies.txt 是空文件（0 字节），yt-dlp 无法从中读取任何 Cookie。".into(),
+            "请确认导出时已登录 YouTube，然后用 Get cookies.txt LOCALLY 重新导出。".into(),
+        )),
+        Ok(_) => {
+            if std::fs::File::open(file).is_err() {
+                Some((
+                    "cookies.txt 无法读取。".into(),
+                    "文件可能正被其他程序占用，或当前账号没有读取权限；请关闭占用它的程序后重试。"
+                        .into(),
+                ))
+            } else {
+                None
+            }
+        }
+        Err(_) => Some((
+            "无法访问 cookies.txt。".into(),
+            "请确认文件仍然存在且当前账号可以访问它。".into(),
+        )),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -700,6 +749,39 @@ mod tests {
     }
 
     #[test]
+    fn a_stale_or_empty_cookies_txt_is_refused_with_a_reason() {
+        let mut settings = settings();
+        settings.cookies.mode = CookieMode::File;
+        settings.cookies.file = r"E:\definitely\missing\cookies.txt".into();
+        let problem = cookie_file_problem(&settings).expect("a missing file is a problem");
+        assert!(problem.0.contains("找不到"), "got {}", problem.0);
+        assert!(problem.1.contains("设置 → Cookies"), "got {}", problem.1);
+
+        // An empty path is "no cookies", not a broken configuration.
+        settings.cookies.file = "   ".into();
+        assert!(cookie_file_problem(&settings).is_none());
+
+        let dir = std::env::temp_dir().join("ytd-cookie-problem-test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("cookies.txt");
+        std::fs::write(&file, "# Netscape HTTP Cookie File\n").unwrap();
+        settings.cookies.file = file.to_string_lossy().to_string();
+        assert!(cookie_file_problem(&settings).is_none());
+
+        // A zero-byte export is refused, and the reason says which mistake it is.
+        std::fs::write(&file, "").unwrap();
+        let problem = cookie_file_problem(&settings).expect("an empty file is a problem");
+        assert!(problem.0.contains("空文件"), "got {}", problem.0);
+
+        // Browser mode never inspects a path.
+        settings.cookies.mode = CookieMode::Browser;
+        assert!(cookie_file_problem(&settings).is_none());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_codec_sort_order_is_passed_and_keeps_quality_first() {
         let args = stream_args(
             &settings(),
@@ -730,7 +812,7 @@ mod tests {
         assert!(position("vcodec:av01") < position("vcodec:vp9"));
         assert!(position("vcodec:vp9") < position("vcodec:avc1"));
         // Opus has to be preferred before the container preference, otherwise yt-dlp's
-        // ext:webm rule can pull in an AAC track (verified against 2026.10.26).
+        // ext:webm rule can pull in an AAC track (verified against 2026.11.23).
         assert!(position("acodec:opus") < position("ext:webm"));
     }
 

@@ -16,6 +16,7 @@ import {
   Cookie,
   Copy,
   Download,
+  ExternalLink,
   FileText,
   FolderOpen,
   Info,
@@ -1193,45 +1194,118 @@ function CookiesSection({
       ) : null}
 
       {settings.mode === "file" ? (
-        <SettingRow
-          layout="stacked"
-          title="cookies.txt 文件"
-          description="只保存路径；文件由 yt-dlp 直接读取，应用不会解析或显示其中的内容。"
-          value={
-            settings.file.trim() ? (
-              <span className="font-mono">已配置：{settings.file.trim()}</span>
-            ) : (
-              "尚未选择文件，当前等同于不使用 Cookies"
-            )
-          }
-        >
-          <div className="flex items-center gap-2">
-            <DraftField
-              className="min-w-0 flex-1"
-              value={settings.file}
-              placeholder="E:\\path\\to\\cookies.txt"
-              ariaLabel="cookies 文件路径"
-              onCommit={(next) => save({ file: next }, false)}
-            />
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={<FileText className="size-3.5" />}
-              onClick={async () => {
-                const picked = await pickCookieFile();
-                if (picked) {
-                  save({ file: picked }, false);
-                }
-              }}
-            >
-              选择 cookies.txt
-            </Button>
-          </div>
-        </SettingRow>
+        <>
+          <SettingRow
+            layout="stacked"
+            title="cookies.txt 文件"
+            description="只保存路径；文件由 yt-dlp 直接读取，应用不会解析或显示其中的内容。"
+            value={
+              settings.file.trim() ? (
+                <span className="font-mono">已配置：{settings.file.trim()}</span>
+              ) : (
+                "尚未选择文件，当前等同于不使用 Cookies"
+              )
+            }
+          >
+            <div className="flex items-center gap-2">
+              <DraftField
+                className="min-w-0 flex-1"
+                value={settings.file}
+                placeholder="E:\\path\\to\\cookies.txt"
+                ariaLabel="cookies 文件路径"
+                onCommit={(next) => save({ file: next }, false)}
+              />
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<FileText className="size-3.5" />}
+                onClick={async () => {
+                  const picked = await pickCookieFile();
+                  if (picked) {
+                    save({ file: picked }, false);
+                  }
+                }}
+              >
+                选择 cookies.txt
+              </Button>
+            </div>
+          </SettingRow>
+
+          <CookieFileGuide />
+        </>
       ) : null}
 
       <CookieDiagnostics settings={settings} onUseBrowser={(key) => save({ mode: "browser", browser: key })} />
     </SettingPanel>
+  );
+}
+
+/**
+ * The in-app guide for the file mode.
+ *
+ * A user who has never exported a cookiejar should not have to leave the application to
+ * find out how: the extension name, the address and the exact steps belong in the panel.
+ * Only the path is stored — the guide never touches the file itself.
+ */
+const COOKIE_EXTENSION_URL = "https://github.com/kairi003/Get-cookies.txt-LOCALLY";
+
+const COOKIE_FILE_STEPS = [
+  "安装浏览器插件 Get cookies.txt LOCALLY。",
+  "使用浏览器登录 YouTube 账号。",
+  "打开 YouTube 页面。",
+  "点击浏览器工具栏中的 Get cookies.txt LOCALLY 插件。",
+  "将 Cookies 导出为 Netscape 格式。",
+  "保存导出的 cookies.txt 文件。",
+  "回到 YT Downloader，进入设置 → Cookies。",
+  "将「使用方式」切换为「文件」。",
+  "点击「选择 cookies.txt」。",
+  "选择刚刚导出的 cookies.txt 文件。",
+];
+
+function CookieFileGuide() {
+  const openExtension = () => {
+    void runtimeApi.openUrl(COOKIE_EXTENSION_URL).catch((error: unknown) => {
+      toast.error("无法打开浏览器", describeError(error));
+    });
+  };
+
+  return (
+    <div className="px-4 py-3.5" aria-label="如何获取 YouTube Cookies">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-micro tracking-[0.08em] text-content-tertiary uppercase">
+          如何获取 YouTube Cookies
+        </span>
+        <Button
+          size="xs"
+          variant="ghost"
+          icon={<ExternalLink className="size-3" />}
+          onClick={openExtension}
+        >
+          Get cookies.txt LOCALLY
+        </Button>
+      </div>
+
+      <ol className="mt-2 ml-4 list-decimal space-y-0.5 text-caption leading-[1.15rem] text-content-secondary">
+        {COOKIE_FILE_STEPS.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+
+      <p className="mt-2 text-micro leading-[1.05rem] text-content-tertiary">
+        插件地址：
+        <button
+          type="button"
+          onClick={openExtension}
+          className="break-all text-accent underline-offset-2 hover:underline"
+        >
+          {COOKIE_EXTENSION_URL}
+        </button>
+      </p>
+
+      <p className="mt-1 text-micro leading-[1.05rem] text-warning">
+        cookies.txt 等同于账号登录凭据：只保存在你选择的路径，应用不复制、不上传、不写入日志，也不要提交到 Git 或转发给他人。
+      </p>
+    </div>
   );
 }
 
@@ -1382,7 +1456,14 @@ function CookieDiagnostics({
           )}
         >
           <FileText className="mt-0.5 size-3.5 shrink-0" />
-          <span className="flex-1">{fileCheck.message}</span>
+          <span className="min-w-0 flex-1">
+            {fileCheck.message}
+            {fileCheck.exists ? (
+              <span className="mt-0.5 block font-mono text-micro opacity-80">
+                {formatBytes(fileCheck.sizeBytes)}
+              </span>
+            ) : null}
+          </span>
         </div>
       ) : null}
     </div>
